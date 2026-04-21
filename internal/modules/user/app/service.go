@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/geromme09/chat-system/internal/modules/user/domain"
 	"github.com/geromme09/chat-system/internal/platform/auth"
+	"github.com/geromme09/chat-system/internal/platform/identity"
 	"github.com/geromme09/chat-system/internal/platform/storage"
 	"github.com/geromme09/chat-system/internal/platform/validate"
 )
@@ -57,8 +57,6 @@ type Service struct {
 }
 
 func NewService(repo domain.Repository, hasher auth.PasswordHasher, tokens auth.TokenManager, storage storage.Service) *Service {
-	var counter int64
-
 	return &Service{
 		repo:    repo,
 		hasher:  hasher,
@@ -67,10 +65,7 @@ func NewService(repo domain.Repository, hasher auth.PasswordHasher, tokens auth.
 		timeSource: func() time.Time {
 			return time.Now().UTC()
 		},
-		idSource: func() string {
-			counter++
-			return fmt.Sprintf("usr_%s_%d", time.Now().UTC().Format("20060102150405"), counter)
-		},
+		idSource: identity.NewUUID,
 	}
 }
 
@@ -90,10 +85,15 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 
 	now := s.timeSource()
 	userID := s.idSource()
+	passwordHash, err := s.hasher.Hash(input.Password)
+	if err != nil {
+		return AuthResult{}, err
+	}
+
 	user := domain.User{
 		ID:              userID,
 		Email:           strings.ToLower(strings.TrimSpace(input.Email)),
-		PasswordHash:    s.hasher.Hash(input.Password),
+		PasswordHash:    passwordHash,
 		AccountStatus:   "active",
 		AuthProvider:    "local",
 		IsVerified:      false,

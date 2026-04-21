@@ -1,0 +1,43 @@
+-- +goose Up
+UPDATE sports SET id = '4d2b0b0d-a706-4de0-b2fa-2fe7c59ec6f6' WHERE slug = 'basketball';
+UPDATE sports SET id = '2c8fba34-33ea-4ba5-bb65-8c9d1f9af877' WHERE slug = 'badminton';
+UPDATE sports SET id = 'b1c7f2aa-aef9-4dd4-b811-8a823eb2ef7e' WHERE slug = 'volleyball';
+UPDATE sports SET id = '94c1c028-2dde-4323-9d86-cf7091748548' WHERE slug = 'table-tennis';
+UPDATE sports SET id = 'd7bb8fa9-32f5-4b2c-ab20-24a5352a1798' WHERE slug = 'tennis';
+UPDATE sports SET id = '670bde52-a83c-4ed8-839c-b080fcd69dd1' WHERE slug = 'futsal';
+UPDATE sports SET id = '20efaa0b-bf56-4195-8f2c-f3945cf98133' WHERE slug = 'football';
+UPDATE sports SET id = 'cf68df2c-faa6-4e07-a8d3-fbdd3450198f' WHERE slug = 'boxing';
+UPDATE sports SET id = '20d71d7d-38ae-4b55-8f8e-aedfb931f4dd' WHERE slug = 'mma';
+UPDATE sports SET id = 'c1d5bdc8-7690-4f0e-84e8-c52505b19434' WHERE slug = 'billiards';
+UPDATE sports SET id = '7d937470-89d9-4d16-84f5-9cd85e11d6ca' WHERE slug = 'bowling';
+UPDATE sports SET id = '80c67aef-649f-48bd-8b54-b417b559b4e6' WHERE slug = 'swimming';
+UPDATE sports SET id = '006457b7-b6d0-44e3-bc1c-c20da49a26f1' WHERE slug = 'running';
+UPDATE sports SET id = 'bf8e1e5b-d791-449f-b6c8-5127af99fd9c' WHERE slug = 'cycling';
+UPDATE sports SET id = '30c0ef26-7e99-4eae-b7d0-0845904c4898' WHERE slug = 'pickleball';
+UPDATE sports SET id = 'fd13e7e3-652a-44a0-b822-4f0f5cb6fb4a' WHERE slug = 'golf';
+UPDATE sports SET id = '6a31a694-113d-4ea2-87d8-2f0f8908fccd' WHERE slug = 'baseball';
+UPDATE sports SET id = '29fa5e2b-e86e-474e-bb6f-42cc202306ea' WHERE slug = 'softball';
+UPDATE sports SET id = '3977ae58-f3e6-4149-964f-86770b65d9ec' WHERE slug = 'skateboarding';
+UPDATE sports SET id = 'ae8f041f-9004-42cf-a5db-a7e909975744' WHERE slug = 'climbing';
+
+-- +goose Down
+UPDATE sports SET id = 'sport_basketball' WHERE slug = 'basketball';
+UPDATE sports SET id = 'sport_badminton' WHERE slug = 'badminton';
+UPDATE sports SET id = 'sport_volleyball' WHERE slug = 'volleyball';
+UPDATE sports SET id = 'sport_table_tennis' WHERE slug = 'table-tennis';
+UPDATE sports SET id = 'sport_tennis' WHERE slug = 'tennis';
+UPDATE sports SET id = 'sport_futsal' WHERE slug = 'futsal';
+UPDATE sports SET id = 'sport_football' WHERE slug = 'football';
+UPDATE sports SET id = 'sport_boxing' WHERE slug = 'boxing';
+UPDATE sports SET id = 'sport_mma' WHERE slug = 'mma';
+UPDATE sports SET id = 'sport_billiards' WHERE slug = 'billiards';
+UPDATE sports SET id = 'sport_bowling' WHERE slug = 'bowling';
+UPDATE sports SET id = 'sport_swimming' WHERE slug = 'swimming';
+UPDATE sports SET id = 'sport_running' WHERE slug = 'running';
+UPDATE sports SET id = 'sport_cycling' WHERE slug = 'cycling';
+UPDATE sports SET id = 'sport_pickleball' WHERE slug = 'pickleball';
+UPDATE sports SET id = 'sport_golf' WHERE slug = 'golf';
+UPDATE sports SET id = 'sport_baseball' WHERE slug = 'baseball';
+UPDATE sports SET id = 'sport_softball' WHERE slug = 'softball';
+UPDATE sports SET id = 'sport_skateboarding' WHERE slug = 'skateboarding';
+UPDATE sports SET id = 'sport_climbing' WHERE slug = 'climbing';

@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE users (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
@@ -182,3 +183,26 @@ CREATE INDEX idx_friendships_requester_user_id ON friendships (requester_user_id
 CREATE INDEX idx_friendships_addressee_user_id ON friendships (addressee_user_id);
 CREATE INDEX idx_matches_sport_name_created_at ON matches (sport_name, created_at);
 CREATE INDEX idx_rank_entries_lookup ON rank_entries (sport_name, geography_scope, geography_value, points DESC);
+
+-- +goose Down
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS location_scopes;
+DROP TABLE IF EXISTS rank_entries;
+DROP TABLE IF EXISTS feed_media;
+DROP TABLE IF EXISTS feed_posts;
+DROP TABLE IF EXISTS challenge_results;
+DROP TABLE IF EXISTS challenges;
+DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS swipe_actions;
+DROP TABLE IF EXISTS discovery_preferences;
+DROP TABLE IF EXISTS message_reads;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS conversation_participants;
+DROP TABLE IF EXISTS conversations;
+DROP TABLE IF EXISTS friend_qr_tokens;
+DROP TABLE IF EXISTS friendships;
+DROP TABLE IF EXISTS auth_sessions;
+DROP TABLE IF EXISTS auth_accounts;
+DROP TABLE IF EXISTS user_sports;
+DROP TABLE IF EXISTS user_profiles;
+DROP TABLE IF EXISTS users;

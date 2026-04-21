@@ -3,15 +3,20 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/geromme09/chat-system/internal/modules/chat/domain"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
+	"github.com/geromme09/chat-system/internal/platform/identity"
 	"github.com/geromme09/chat-system/internal/platform/messaging"
 	"github.com/geromme09/chat-system/internal/platform/validate"
 )
+
+// UserLookup is the only user-domain capability chat needs for conversation setup.
+type UserLookup interface {
+	GetUser(ctx context.Context, userID string) (userdomain.User, error)
+}
 
 type CreateConversationInput struct {
 	ParticipantIDs []string `json:"participant_ids"`
@@ -23,15 +28,13 @@ type SendMessageInput struct {
 
 type Service struct {
 	repo       domain.Repository
-	users      userdomain.Repository
+	users      UserLookup
 	publisher  messaging.Publisher
 	timeSource func() time.Time
 	idSource   func(prefix string) string
 }
 
-func NewService(repo domain.Repository, users userdomain.Repository, publisher messaging.Publisher) *Service {
-	var counter int64
-
+func NewService(repo domain.Repository, users UserLookup, publisher messaging.Publisher) *Service {
 	return &Service{
 		repo:      repo,
 		users:     users,
@@ -39,10 +42,7 @@ func NewService(repo domain.Repository, users userdomain.Repository, publisher m
 		timeSource: func() time.Time {
 			return time.Now().UTC()
 		},
-		idSource: func(prefix string) string {
-			counter++
-			return fmt.Sprintf("%s_%s_%d", prefix, time.Now().UTC().Format("20060102150405"), counter)
-		},
+		idSource: func(_ string) string { return identity.NewUUID() },
 	}
 }
 

@@ -2,90 +2,141 @@ package http
 
 import (
 	"errors"
-	"net/http"
 
 	"github.com/geromme09/chat-system/internal/modules/user/app"
 	"github.com/geromme09/chat-system/internal/platform/httpx"
+	"github.com/geromme09/chat-system/internal/platform/response"
 )
 
-type Handler struct {
+type SignUpHandler struct {
 	service *app.Service
 }
 
-func NewHandler(service *app.Service) *Handler {
-	return &Handler{service: service}
+type LoginHandler struct {
+	service *app.Service
 }
 
-func (h *Handler) SignUp(w http.ResponseWriter, r *http.Request) {
+type GetMeHandler struct {
+	service *app.Service
+}
+
+type UpdateMeHandler struct {
+	service *app.Service
+}
+
+func NewSignUpHandler(service *app.Service) *SignUpHandler {
+	return &SignUpHandler{service: service}
+}
+
+func NewLoginHandler(service *app.Service) *LoginHandler {
+	return &LoginHandler{service: service}
+}
+
+func NewGetMeHandler(service *app.Service) *GetMeHandler {
+	return &GetMeHandler{service: service}
+}
+
+func NewUpdateMeHandler(service *app.Service) *UpdateMeHandler {
+	return &UpdateMeHandler{service: service}
+}
+
+// Serve handles user signup.
+// @Summary Sign up
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body app.SignUpInput true "Sign up payload"
+// @Success 201 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/auth/signup [post]
+func (h *SignUpHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	var input app.SignUpInput
-	if err := httpx.DecodeJSON(r, &input); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := ctx.DecodeJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
 	}
 
-	result, err := h.service.SignUp(r.Context(), input)
+	result, err := h.service.SignUp(ctx.Request.Context(), input)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, result)
+	return response.Created(result)
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+// Serve handles user login.
+// @Summary Log in
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body app.LoginInput true "Login payload"
+// @Success 200 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Router /api/v1/auth/login [post]
+func (h *LoginHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	var input app.LoginInput
-	if err := httpx.DecodeJSON(r, &input); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := ctx.DecodeJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
 	}
 
-	result, err := h.service.Login(r.Context(), input)
+	result, err := h.service.Login(ctx.Request.Context(), input)
 	if err != nil {
 		if errors.Is(err, app.ErrInvalidCredentials) {
-			httpx.WriteError(w, http.StatusUnauthorized, err.Error())
-			return
+			return response.Unauthorized(err)
 		}
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, result)
+	return response.Ok(result, nil)
 }
 
-func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httpx.CurrentUserID(r.Context())
+// Serve returns the current authenticated user.
+// @Summary Get my profile
+// @Tags profile
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/profile/me [get]
+func (h *GetMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing user context")
-		return
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	result, err := h.service.GetMe(r.Context(), userID)
+	result, err := h.service.GetMe(ctx.Request.Context(), userID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, result)
+	return response.Ok(result, nil)
 }
 
-func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httpx.CurrentUserID(r.Context())
+// Serve updates the current authenticated profile.
+// @Summary Update my profile
+// @Tags profile
+// @Accept json
+// @Produce json
+// @Param request body app.UpdateProfileInput true "Profile payload"
+// @Success 200 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/profile/me [put]
+func (h *UpdateMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing user context")
-		return
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
 	var input app.UpdateProfileInput
-	if err := httpx.DecodeJSON(r, &input); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := ctx.DecodeJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
 	}
 
-	profile, err := h.service.UpdateProfile(r.Context(), userID, input)
+	profile, err := h.service.UpdateProfile(ctx.Request.Context(), userID, input)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, profile)
+	return response.Ok(profile, nil)
 }

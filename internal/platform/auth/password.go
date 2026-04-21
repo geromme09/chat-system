@@ -1,17 +1,18 @@
 package auth
 
-import (
-	"crypto/sha256"
-	"encoding/hex"
-)
+import "golang.org/x/crypto/bcrypt"
 
 type PasswordHasher struct{}
 
-func (PasswordHasher) Hash(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
+func (PasswordHasher) Hash(raw string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+
+	return string(hashed), nil
 }
 
 func (h PasswordHasher) Compare(raw, hashed string) bool {
-	return h.Hash(raw) == hashed
+	return bcrypt.CompareHashAndPassword([]byte(hashed), []byte(raw)) == nil
 }

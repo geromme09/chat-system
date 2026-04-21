@@ -1,96 +1,134 @@
 package http
 
 import (
-	"net/http"
+	"errors"
 	"strings"
 
 	"github.com/geromme09/chat-system/internal/modules/chat/app"
 	"github.com/geromme09/chat-system/internal/platform/httpx"
+	"github.com/geromme09/chat-system/internal/platform/response"
 )
 
-type Handler struct {
+type ListConversationsHandler struct {
 	service *app.Service
 }
 
-func NewHandler(service *app.Service) *Handler {
-	return &Handler{service: service}
+type CreateConversationHandler struct {
+	service *app.Service
 }
 
-func (h *Handler) ListConversations(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httpx.CurrentUserID(r.Context())
+type ConversationMessagesHandler struct {
+	service *app.Service
+}
+
+func NewListConversationsHandler(service *app.Service) *ListConversationsHandler {
+	return &ListConversationsHandler{service: service}
+}
+
+func NewCreateConversationHandler(service *app.Service) *CreateConversationHandler {
+	return &CreateConversationHandler{service: service}
+}
+
+func NewConversationMessagesHandler(service *app.Service) *ConversationMessagesHandler {
+	return &ConversationMessagesHandler{service: service}
+}
+
+// Serve lists current user's conversations.
+// @Summary List conversations
+// @Tags chat
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/chat/conversations [get]
+func (h *ListConversationsHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing user context")
-		return
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	conversations, err := h.service.ListConversations(r.Context(), userID)
+	conversations, err := h.service.ListConversations(ctx.Request.Context(), userID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, conversations)
+	return response.Ok(conversations, nil)
 }
 
-func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httpx.CurrentUserID(r.Context())
+// Serve creates a conversation.
+// @Summary Create conversation
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Param request body app.CreateConversationInput true "Conversation payload"
+// @Success 201 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/chat/conversations [post]
+func (h *CreateConversationHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing user context")
-		return
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
 	var input app.CreateConversationInput
-	if err := httpx.DecodeJSON(r, &input); err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
+	if err := ctx.DecodeJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
 	}
 
-	conversation, err := h.service.CreateConversation(r.Context(), userID, input)
+	conversation, err := h.service.CreateConversation(ctx.Request.Context(), userID, input)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, err.Error())
-		return
+		return response.BadRequest(err)
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, conversation)
+	return response.Created(conversation)
 }
 
-func (h *Handler) RouteConversationMessages(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httpx.CurrentUserID(r.Context())
+// Serve routes conversation message operations.
+// @Summary List or send conversation messages
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Success 201 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 404 {object} response.ApiResponse
+// @Failure 405 {object} response.ApiResponse
+// @Router /api/v1/chat/conversations/{id}/messages [get]
+// @Router /api/v1/chat/conversations/{id}/messages [post]
+func (h *ConversationMessagesHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "missing user context")
-		return
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/chat/conversations/")
+	path := strings.TrimPrefix(ctx.Request.URL.Path, "/api/v1/chat/conversations/")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) != 2 || parts[1] != "messages" {
-		http.NotFound(w, r)
-		return
+		return response.NotFound("resource not found")
 	}
 
 	conversationID := parts[0]
-	switch r.Method {
-	case http.MethodGet:
-		messages, err := h.service.ListMessages(r.Context(), userID, conversationID)
+	switch ctx.Request.Method {
+	case "GET":
+		messages, err := h.service.ListMessages(ctx.Request.Context(), userID, conversationID)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, err.Error())
-			return
+			return response.BadRequest(err)
 		}
-		httpx.WriteJSON(w, http.StatusOK, messages)
-	case http.MethodPost:
+		return response.Ok(messages, nil)
+	case "POST":
 		var input app.SendMessageInput
-		if err := httpx.DecodeJSON(r, &input); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid request body")
-			return
+		if err := ctx.DecodeJSON(&input); err != nil {
+			return response.BadRequest(errors.New("invalid request body"))
 		}
 
-		message, err := h.service.SendMessage(r.Context(), userID, conversationID, input)
+		message, err := h.service.SendMessage(ctx.Request.Context(), userID, conversationID, input)
 		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, err.Error())
-			return
+			return response.BadRequest(err)
 		}
-		httpx.WriteJSON(w, http.StatusCreated, message)
+		return response.Created(message)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return response.MethodNotAllowed()
 	}
 }

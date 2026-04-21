@@ -4,6 +4,8 @@ import '../../../app/router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
+import '../../../core/session/app_session.dart';
+import '../data/auth_api.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -13,12 +15,15 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
+  final AuthApi _authApi = AuthApi();
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _displayNameController = TextEditingController();
   final _cityController = TextEditingController();
   bool _agreeToSafety = true;
+  bool _isSubmitting = false;
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -29,12 +34,52 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await _authApi.signUp(
+        SignUpRequest(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+          displayName: _displayNameController.text.trim(),
+          city: _cityController.text.trim(),
+        ),
+      );
+
+      appSession.setSession(
+        token: result.token,
+        userID: result.userID,
+        profile: result.profile,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pushNamed(AppRoute.sportsSelection.path);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSubmitting = false;
+      });
+    }
   }
 
   @override
@@ -128,10 +173,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
             ),
           ),
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              _errorMessage!,
+              style: textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           FilledButton(
-            onPressed: _agreeToSafety ? _submit : null,
-            child: const Text('Continue to profile setup'),
+            onPressed: _agreeToSafety && !_isSubmitting
+                ? () {
+                    _submit();
+                  }
+                : null,
+            child: Text(_isSubmitting ? 'Creating account...' : 'Continue to sports'),
           ),
           const SizedBox(height: 12),
           TextButton(

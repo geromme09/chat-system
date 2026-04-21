@@ -3,8 +3,17 @@ package main
 import (
 	"log"
 
+	_ "github.com/geromme09/chat-system/docs/swagger"
 	"github.com/geromme09/chat-system/internal/bootstrap"
 )
+
+// @title Chat System API
+// @version 1.0
+// @description Mobile-first sports social app backend API.
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @BasePath /
 
 func main() {
 	app, err := bootstrap.NewApp()
