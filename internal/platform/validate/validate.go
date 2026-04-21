@@ -1,22 +1,40 @@
 package validate
 
 import (
-	"errors"
+	"reflect"
 	"strings"
+	"sync"
+
+	"github.com/go-playground/validator/v10"
 )
 
-func Required(value, field string) error {
-	if strings.TrimSpace(value) == "" {
-		return errors.New(field + " is required")
-	}
+var (
+	once     sync.Once
+	instance *validator.Validate
+)
 
-	return nil
+func Struct(input any) error {
+	return validatorInstance().Struct(input)
 }
 
-func MinLength(value string, length int, field string) error {
-	if len(strings.TrimSpace(value)) < length {
-		return errors.New(field + " must be at least the minimum length")
-	}
+func validatorInstance() *validator.Validate {
+	once.Do(func() {
+		validate := validator.New(validator.WithRequiredStructEnabled())
+		validate.RegisterTagNameFunc(func(field reflect.StructField) string {
+			name := field.Tag.Get("json")
+			if name == "" {
+				return strings.ToLower(field.Name)
+			}
 
-	return nil
+			name = strings.TrimSpace(strings.Split(name, ",")[0])
+			if name == "" || name == "-" {
+				return strings.ToLower(field.Name)
+			}
+
+			return name
+		})
+		instance = validate
+	})
+
+	return instance
 }

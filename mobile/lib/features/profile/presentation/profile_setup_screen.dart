@@ -5,6 +5,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
+import '../../auth/presentation/welcome_screen.dart';
 import '../data/profile_api.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -21,9 +22,11 @@ class ProfileSetupScreen extends StatefulWidget {
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final ProfileApi _profileApi = ProfileApi();
+
   final _bioController = TextEditingController(
     text: 'Weekend player looking for friendly but competitive runs.',
   );
+
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -31,6 +34,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void initState() {
     super.initState();
     final currentProfile = appSession.profile;
+
     if (currentProfile != null && currentProfile.bio.trim().isNotEmpty) {
       _bioController.text = currentProfile.bio;
     }
@@ -45,9 +49,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   Future<void> _finishSetup() async {
     final token = appSession.token;
     final currentProfile = appSession.profile;
+
     if (token == null || currentProfile == null) {
       setState(() {
-        _errorMessage = 'Your session is missing. Please sign up again.';
+        _errorMessage = 'Your session expired. Please sign up again.';
       });
       return;
     }
@@ -72,28 +77,29 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       );
 
       appSession.updateProfile(updatedProfile);
+      appSession.clear();
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
+
       Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoute.chatHome.path,
+        AppRoute.welcome.path,
         (_) => false,
+        arguments: const WelcomeScreenArgs(
+          successMessage: 'Registration complete',
+        ),
       );
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = error.toString().replaceFirst('HttpException: ', '');
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
       }
-      setState(() {
-        _isSubmitting = false;
-      });
     }
   }
 
@@ -104,45 +110,73 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     return BrandShell(
       showBack: true,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.xl,
+        ),
         children: [
-          Text('Shape your first player card', style: textTheme.headlineMedium),
-          const SizedBox(height: 12),
+          /// HEADER
           Text(
-            'This profile is what people will eventually see before they chat, add you with QR, or challenge you to play.',
-            style: textTheme.bodyLarge?.copyWith(
-              color: AppTheme.slate,
-            ),
+            'Shape your player card',
+            style: textTheme.headlineMedium,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'This is what people see before they connect or play.',
+            style: textTheme.bodyMedium,
+          ),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// PROFILE CARD
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Sports selected', style: textTheme.titleLarge),
-                const SizedBox(height: 14),
+                Text(
+                  'Sports',
+                  style: textTheme.titleLarge,
+                ),
+                const SizedBox(height: AppSpacing.md),
+
+                /// SPORTS CHIPS
                 if (widget.selectedSports.isEmpty)
                   Text(
-                    'You can still finish profile setup now and add sports from the onboarding selector later.',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.slate,
-                    ),
+                    'You can add sports later anytime.',
+                    style: textTheme.bodyMedium,
                   )
                 else
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: widget.selectedSports
-                        .map(
-                          (sport) => Chip(
-                            label: Text(sport),
-                            backgroundColor: AppTheme.paper,
-                            side: const BorderSide(color: AppTheme.line),
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: widget.selectedSports.map((sport) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(
+                            AppRadius.sm,
                           ),
-                        )
-                        .toList(),
+                          border: Border.all(
+                            color: AppColors.border,
+                          ),
+                        ),
+                        child: Text(
+                          sport,
+                          style: textTheme.bodyMedium,
+                        ),
+                      );
+                    }).toList(),
                   ),
-                const SizedBox(height: 20),
+
+                const SizedBox(height: AppSpacing.lg),
+
+                /// BIO
                 TextField(
                   controller: _bioController,
                   maxLines: 4,
@@ -154,39 +188,26 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          const SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'MVP build note',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Verified accounts, Google login, Facebook login, and phone signup come later. The first pass should feel clean, calm, and fast.',
-                ),
-              ],
-            ),
-          ),
+
+          /// ERROR STATE
           if (_errorMessage != null) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpacing.md),
             Text(
               _errorMessage!,
               style: textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+                color: AppColors.error,
               ),
             ),
           ],
-          const SizedBox(height: 20),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// CTA
           FilledButton(
-            onPressed: _isSubmitting
-                ? null
-                : () {
-                    _finishSetup();
-                  },
-            child: Text(_isSubmitting ? 'Saving profile...' : 'Finish setup'),
+            onPressed: _isSubmitting ? null : _finishSetup,
+            child: Text(
+              _isSubmitting ? 'Saving profile...' : 'Finish setup',
+            ),
           ),
         ],
       ),

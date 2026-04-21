@@ -19,11 +19,11 @@ type UserLookup interface {
 }
 
 type CreateConversationInput struct {
-	ParticipantIDs []string `json:"participant_ids"`
+	ParticipantIDs []string `json:"participant_ids" validate:"required"`
 }
 
 type SendMessageInput struct {
-	Body string `json:"body"`
+	Body string `json:"body" validate:"required"`
 }
 
 type Service struct {
@@ -47,8 +47,8 @@ func NewService(repo domain.Repository, users UserLookup, publisher messaging.Pu
 }
 
 func (s *Service) CreateConversation(ctx context.Context, actorUserID string, input CreateConversationInput) (domain.Conversation, error) {
-	if len(input.ParticipantIDs) == 0 {
-		return domain.Conversation{}, errors.New("participant_ids is required")
+	if err := validate.Struct(input); err != nil {
+		return domain.Conversation{}, err
 	}
 
 	participantSet := map[string]struct{}{actorUserID: {}}
@@ -97,7 +97,7 @@ func (s *Service) ListMessages(ctx context.Context, actorUserID, conversationID 
 }
 
 func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID string, input SendMessageInput) (domain.Message, error) {
-	if err := validate.Required(input.Body, "body"); err != nil {
+	if err := validate.Struct(input); err != nil {
 		return domain.Message{}, err
 	}
 

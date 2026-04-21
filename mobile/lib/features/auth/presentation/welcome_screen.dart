@@ -3,177 +3,151 @@ import 'package:flutter/material.dart';
 import '../../../app/router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
-import '../../../core/widgets/section_card.dart';
 
-class WelcomeScreen extends StatelessWidget {
-  const WelcomeScreen({super.key});
+class WelcomeScreenArgs {
+  const WelcomeScreenArgs({
+    this.successMessage,
+  });
+
+  final String? successMessage;
+}
+
+class WelcomeScreen extends StatefulWidget {
+  const WelcomeScreen({
+    super.key,
+    this.args = const WelcomeScreenArgs(),
+  });
+
+  final WelcomeScreenArgs args;
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  bool _showSuccessPill = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final message = widget.args.successMessage;
+    if (message == null || message.isEmpty) return;
+
+    _showSuccessPill = true;
+    Future<void>.delayed(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() {
+        _showSuccessPill = false;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final screenHeight = MediaQuery.of(context).size.height;
 
     return BrandShell(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+      child: Stack(
         children: [
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppTheme.ink,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(Icons.sports_basketball_rounded, color: Colors.white),
-              ),
-              const SizedBox(width: 14),
-              Text(
-                'Play Circle',
-                style: textTheme.titleLarge,
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Text(
-            'Find your people.\nPlay outside.\nKeep score later.',
-            style: textTheme.displaySmall,
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'A social sports app for meeting players, adding friends, and building real matchups without making the whole thing feel like a dating app.',
-            style: textTheme.bodyLarge?.copyWith(
-              color: AppTheme.slate,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.lg,
+              AppSpacing.lg,
+              AppSpacing.xl,
             ),
-          ),
-          const SizedBox(height: 28),
-          const _SportStrip(),
-          const SizedBox(height: 28),
-          const SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _ValueRow(
-                  icon: Icons.qr_code_2_rounded,
-                  title: 'Add friends with QR',
-                  subtitle: 'Bring your actual circle into the app without discovery.',
+                const SizedBox(height: AppSpacing.xl),
+                RichText(
+                  text: TextSpan(
+                    style: textTheme.displaySmall?.copyWith(height: 1.08),
+                    children: const [
+                      TextSpan(text: 'Play what\n'),
+                      TextSpan(
+                        text: 'you love.',
+                        style: TextStyle(color: AppColors.accentStrong),
+                      ),
+                    ],
+                  ),
                 ),
-                SizedBox(height: 18),
-                _ValueRow(
-                  icon: Icons.chat_bubble_rounded,
-                  title: 'Start with chat',
-                  subtitle: 'Get the MVP strong on messaging before layering matches.',
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Any game. Any court.\nAnytime.',
+                  style: textTheme.bodyMedium?.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-                SizedBox(height: 18),
-                _ValueRow(
-                  icon: Icons.emoji_events_rounded,
-                  title: 'Grow into challenges',
-                  subtitle: 'Later, turn real games into posts, winners, and rank points.',
+                const SizedBox(height: AppSpacing.lg),
+                Center(
+                  child: SizedBox(
+                    height: screenHeight * 0.38,
+                    child: Image.asset(
+                      'assets/images/welcome.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed(AppRoute.signUp.path),
+                  child: const Text('Create account'),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton(
+                  onPressed: () =>
+                      Navigator.of(context).pushNamed(AppRoute.login.path),
+                  child: const Text('I already have an account'),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pushNamed(AppRoute.signUp.path),
-            child: const Text('Create your account'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pushNamed(AppRoute.login.path),
-            child: const Text('I already have an account'),
+          Positioned(
+            top: AppSpacing.md,
+            right: AppSpacing.md,
+            child: IgnorePointer(
+              ignoring: true,
+              child: AnimatedOpacity(
+                opacity: _showSuccessPill ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                child: AnimatedSlide(
+                  offset:
+                      _showSuccessPill ? Offset.zero : const Offset(0.15, -0.2),
+                  duration: const Duration(milliseconds: 180),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF16A34A),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1F000000),
+                          blurRadius: 16,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      widget.args.successMessage ?? '',
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SportStrip extends StatelessWidget {
-  const _SportStrip();
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      ('Basketball', Icons.sports_basketball_rounded),
-      ('Badminton', Icons.sports_tennis_rounded),
-      ('Volleyball', Icons.sports_volleyball_rounded),
-    ];
-
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 12),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: AppTheme.card,
-              border: Border.all(color: AppTheme.line),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              children: [
-                Icon(item.$2, color: AppTheme.ink, size: 18),
-                const SizedBox(width: 8),
-                Text(item.$1, style: const TextStyle(fontWeight: FontWeight.w600)),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ValueRow extends StatelessWidget {
-  const _ValueRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppTheme.blush,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(icon, color: AppTheme.ink),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.slate,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

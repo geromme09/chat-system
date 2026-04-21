@@ -2,13 +2,16 @@ package bootstrap
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	chathttp "github.com/geromme09/chat-system/internal/modules/chat/transport/http"
 	sporthttp "github.com/geromme09/chat-system/internal/modules/sport/transport/http"
+	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	userhttp "github.com/geromme09/chat-system/internal/modules/user/transport/http"
 	"github.com/geromme09/chat-system/internal/platform/auth"
 	"github.com/geromme09/chat-system/internal/platform/httpx"
+	"github.com/geromme09/chat-system/internal/platform/response"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
@@ -24,6 +27,19 @@ func RunHTTP(app *App) error {
 	mux.HandleFunc("GET /api/v1/sports", httpx.MakeHandler(sporthttp.NewListSportsHandler(app.SportService)))
 	mux.Handle("GET /api/v1/profile/me", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewGetMeHandler(app.UserService))))
 	mux.Handle("PUT /api/v1/profile/me", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewUpdateMeHandler(app.UserService))))
+	mux.Handle("GET /api/v1/users/search", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewSearchUsersHandler(app.UserService))))
+	mux.Handle("POST /api/v1/friends/requests", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewSendFriendRequestHandler(app.UserService))))
+	mux.Handle("GET /api/v1/friends/requests/incoming", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewIncomingFriendRequestsHandler(app.UserService))))
+	mux.Handle("POST /api/v1/friends/requests/", authMiddleware(tokenManager, httpx.MakeHandler(httpx.HandlerFunc(func(ctx httpx.Context) response.ApiResponse {
+		if strings.HasSuffix(ctx.Request.URL.Path, "/accept") {
+			return userhttp.NewRespondFriendRequestHandler(app.UserService, userdomain.FriendRequestStatusAccepted).Serve(ctx)
+		}
+		if strings.HasSuffix(ctx.Request.URL.Path, "/decline") {
+			return userhttp.NewRespondFriendRequestHandler(app.UserService, userdomain.FriendRequestStatusDeclined).Serve(ctx)
+		}
+		return response.NotFound("resource not found")
+	}))))
+	mux.Handle("GET /api/v1/friends", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewListFriendsHandler(app.UserService))))
 	mux.Handle("GET /api/v1/chat/conversations", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewListConversationsHandler(app.ChatService))))
 	mux.Handle("POST /api/v1/chat/conversations", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewCreateConversationHandler(app.ChatService))))
 	mux.Handle("GET /api/v1/chat/conversations/", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewConversationMessagesHandler(app.ChatService))))

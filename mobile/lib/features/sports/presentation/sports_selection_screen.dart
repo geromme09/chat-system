@@ -20,10 +20,12 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
 
   final SportsApi _sportsApi = SportsApi();
   final TextEditingController _searchController = TextEditingController();
+
   final Set<String> _selectedSports = {'Basketball'};
   final List<SportItem> _sports = <SportItem>[];
 
   Timer? _searchDebounce;
+
   bool _isInitialLoading = true;
   bool _isLoadingMore = false;
   String? _errorMessage;
@@ -43,17 +45,11 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
   }
 
   Future<void> _fetchSports({bool loadMore = false}) async {
-    if (loadMore && (_isLoadingMore || _nextPage == null)) {
-      return;
-    }
+    if (loadMore && (_isLoadingMore || _nextPage == null)) return;
 
     setState(() {
       _errorMessage = null;
-      if (loadMore) {
-        _isLoadingMore = true;
-      } else {
-        _isInitialLoading = true;
-      }
+      loadMore ? _isLoadingMore = true : _isInitialLoading = true;
     });
 
     try {
@@ -63,9 +59,7 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
         limit: _pageSize,
       );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         if (loadMore) {
@@ -78,20 +72,18 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
         _nextPage = page.nextPage;
       });
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
+
       setState(() {
-        _errorMessage = 'Could not load sports from the server. Check that the API is running and reachable from the simulator.';
+        _errorMessage = 'Unable to load sports. Please try again.';
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isInitialLoading = false;
+          _isLoadingMore = false;
+        });
       }
-      setState(() {
-        _isInitialLoading = false;
-        _isLoadingMore = false;
-      });
     }
   }
 
@@ -102,17 +94,27 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
     return BrandShell(
       showBack: true,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.xl,
+        ),
         children: [
-          Text('Choose the sports you actually play', style: textTheme.headlineMedium),
-          const SizedBox(height: 12),
+          /// HEADER
           Text(
-            'The backend now supports a paged sports catalog. This onboarding page mirrors that flow: show a default set first, search fast, and only load more when needed.',
-            style: textTheme.bodyLarge?.copyWith(
-              color: AppTheme.slate,
-            ),
+            'Choose your sports',
+            style: textTheme.headlineMedium,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Pick the sports you actually play.',
+            style: textTheme.bodyMedium,
+          ),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// SEARCH + RESULTS
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -131,11 +133,14 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
+
+                const SizedBox(height: AppSpacing.md),
+
+                /// STATES
                 if (_isInitialLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                    child: Center(
                       child: CircularProgressIndicator(),
                     ),
                   )
@@ -146,108 +151,136 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
                       Text(
                         _errorMessage!,
                         style: textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.error,
+                          color: AppColors.error,
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: AppSpacing.sm),
                       OutlinedButton(
-                        onPressed: () {
-                          _fetchSports();
-                        },
+                        onPressed: _fetchSports,
                         child: const Text('Try again'),
                       ),
                     ],
                   )
                 else if (_sports.isEmpty)
                   Text(
-                    'No sports matched your search yet.',
-                    style: textTheme.bodyMedium?.copyWith(color: AppTheme.slate),
+                    'No sports found.',
+                    style: textTheme.bodyMedium,
                   )
                 else ...[
                   Text(
-                    'Showing ${_sports.length} sports${_nextPage != null ? ' so far' : ''}',
-                    style: textTheme.bodyMedium?.copyWith(color: AppTheme.slate),
+                    'Available sports',
+                    style: textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.md),
+
+                  /// CUSTOM CHIPS (replaces FilterChip)
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
                     children: _sports.map((sport) {
                       final selected = _selectedSports.contains(sport.name);
-                      return FilterChip(
-                        label: Text(sport.name),
-                        selected: selected,
-                        onSelected: (value) {
+
+                      return GestureDetector(
+                        onTap: () {
                           setState(() {
-                            if (value) {
-                              _selectedSports.add(sport.name);
-                            } else {
-                              _selectedSports.remove(sport.name);
-                            }
+                            selected
+                                ? _selectedSports.remove(sport.name)
+                                : _selectedSports.add(sport.name);
                           });
                         },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm,
+                          ),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? AppColors.primary.withValues(alpha: 0.1)
+                                : AppColors.surface,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(
+                              color: selected
+                                  ? AppColors.primary
+                                  : AppColors.border,
+                            ),
+                          ),
+                          child: Text(
+                            sport.name,
+                            style: TextStyle(
+                              color: selected
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
                       );
                     }).toList(),
                   ),
                 ],
-                if (_nextPage != null && _errorMessage == null && !_isInitialLoading) ...[
-                  const SizedBox(height: 16),
+
+                if (_nextPage != null &&
+                    !_isInitialLoading &&
+                    _errorMessage == null) ...[
+                  const SizedBox(height: AppSpacing.md),
                   OutlinedButton(
                     onPressed: _isLoadingMore
                         ? null
-                        : () {
-                            _fetchSports(loadMore: true);
-                          },
-                    child: Text(_isLoadingMore ? 'Loading more...' : 'Load 15 more'),
-                  ),
-                ],
-                if (_searchController.text.trim().isNotEmpty &&
-                    _sports.isNotEmpty &&
-                    !_isInitialLoading) ...[
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _searchController.clear();
-                      });
-                      _fetchSports();
-                    },
-                    child: const Text('Clear search'),
+                        : () => _fetchSports(loadMore: true),
+                    child: Text(
+                      _isLoadingMore ? 'Loading...' : 'Load more',
+                    ),
                   ),
                 ],
               ],
             ),
           ),
-          const SizedBox(height: 18),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// SELECTED SPORTS
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Selected sports', style: textTheme.titleLarge),
-                const SizedBox(height: 12),
+                Text(
+                  'Selected',
+                  style: textTheme.titleLarge,
+                ),
+                const SizedBox(height: AppSpacing.md),
                 if (_selectedSports.isEmpty)
                   Text(
-                    'Pick at least one sport so the first profile card feels relevant.',
-                    style: textTheme.bodyMedium?.copyWith(color: AppTheme.slate),
+                    'Pick at least one sport.',
+                    style: textTheme.bodyMedium,
                   )
                 else
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: _selectedSports
-                        .map(
-                          (sport) => Chip(
-                            label: Text(sport),
-                            backgroundColor: AppTheme.paper,
-                            side: const BorderSide(color: AppTheme.line),
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: _selectedSports.map((sport) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: AppColors.border,
                           ),
-                        )
-                        .toList(),
+                        ),
+                        child: Text(sport),
+                      );
+                    }).toList(),
                   ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// CTA
           FilledButton(
             onPressed: _selectedSports.isEmpty
                 ? null
@@ -255,7 +288,7 @@ class _SportsSelectionScreenState extends State<SportsSelectionScreen> {
                       AppRoute.profileSetup.path,
                       arguments: _selectedSports.toList()..sort(),
                     ),
-            child: const Text('Continue to profile setup'),
+            child: const Text('Continue'),
           ),
         ],
       ),

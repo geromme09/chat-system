@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/router.dart';
+import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
-import '../../../core/session/app_session.dart';
 import '../data/auth_api.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -17,10 +17,13 @@ class SignUpScreen extends StatefulWidget {
 class _SignUpScreenState extends State<SignUpScreen> {
   final AuthApi _authApi = AuthApi();
   final _formKey = GlobalKey<FormState>();
+
   final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _displayNameController = TextEditingController();
   final _cityController = TextEditingController();
+
   bool _agreeToSafety = true;
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -28,6 +31,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   @override
   void dispose() {
     _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     _displayNameController.dispose();
     _cityController.dispose();
@@ -35,9 +39,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isSubmitting = true;
@@ -48,6 +50,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       final result = await _authApi.signUp(
         SignUpRequest(
           email: _emailController.text.trim(),
+          username: _usernameController.text.trim(),
           password: _passwordController.text,
           displayName: _displayNameController.text.trim(),
           city: _cityController.text.trim(),
@@ -60,25 +63,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
         profile: result.profile,
       );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       Navigator.of(context).pushNamed(AppRoute.sportsSelection.path);
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = error.toString().replaceFirst('HttpException: ', '');
       });
     } finally {
-      if (!mounted) {
-        return;
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
       }
-      setState(() {
-        _isSubmitting = false;
-      });
     }
   }
 
@@ -89,112 +88,160 @@ class _SignUpScreenState extends State<SignUpScreen> {
     return BrandShell(
       showBack: true,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.sm,
+          AppSpacing.lg,
+          AppSpacing.xl,
+        ),
         children: [
-          Text('Create your player profile', style: textTheme.headlineMedium),
-          const SizedBox(height: 12),
+          /// HEADER
           Text(
-            'Start with a safe identity, a clear profile photo, and the city where you usually play.',
-            style: textTheme.bodyLarge?.copyWith(
-              color: AppTheme.slate,
-            ),
+            'Create your player profile',
+            style: textTheme.headlineMedium,
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Start with a safe identity and where you usually play.',
+            style: textTheme.bodyMedium,
+          ),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// AVATAR
           const _AvatarPickerCard(),
-          const SizedBox(height: 18),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// FORM
           SectionCard(
             child: Form(
               key: _formKey,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   TextFormField(
                     controller: _displayNameController,
-                    decoration: const InputDecoration(labelText: 'Display name'),
-                    validator: (value) => (value == null || value.trim().isEmpty)
-                        ? 'Display name is required'
-                        : null,
+                    decoration:
+                        const InputDecoration(labelText: 'Display name'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'Display name is required'
+                            : null,
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(height: AppSpacing.md),
+
+                  TextFormField(
+                    controller: _usernameController,
+                    decoration: const InputDecoration(labelText: 'Username'),
+                    textInputAction: TextInputAction.next,
+                    autocorrect: false,
+                    validator: (value) {
+                      final username = value?.trim() ?? '';
+                      final usernamePattern = RegExp(r'^[a-z0-9_]{3,20}$');
+                      if (!usernamePattern.hasMatch(username)) {
+                        return 'Use 3-20 lowercase letters, numbers, or underscores';
+                      }
+                      return null;
+                    },
+                  ),
+
+                  const SizedBox(height: AppSpacing.md),
+
                   TextFormField(
                     controller: _emailController,
                     decoration: const InputDecoration(labelText: 'Email'),
                     keyboardType: TextInputType.emailAddress,
-                    validator: (value) => (value == null || !value.contains('@'))
-                        ? 'Enter a valid email'
-                        : null,
+                    autofillHints: const [AutofillHints.email],
+                    validator: (value) =>
+                        (value == null || !value.contains('@'))
+                            ? 'Enter a valid email'
+                            : null,
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(height: AppSpacing.md),
+
                   TextFormField(
                     controller: _passwordController,
                     decoration: const InputDecoration(labelText: 'Password'),
                     obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    textInputAction: TextInputAction.next,
                     validator: (value) => (value == null || value.length < 8)
                         ? 'Use at least 8 characters'
                         : null,
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(height: AppSpacing.md),
+
                   TextFormField(
                     controller: _cityController,
                     decoration: const InputDecoration(labelText: 'Home city'),
-                    validator: (value) => (value == null || value.trim().isEmpty)
-                        ? 'City is required'
-                        : null,
+                    textInputAction: TextInputAction.done,
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'City is required'
+                            : null,
                   ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppTheme.paper,
-                      border: Border.all(color: AppTheme.line),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Checkbox(
-                          value: _agreeToSafety,
-                          onChanged: (value) {
-                            setState(() {
-                              _agreeToSafety = value ?? false;
-                            });
-                          },
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  /// SAFETY AGREEMENT (lighter UI)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Checkbox(
+                        value: _agreeToSafety,
+                        onChanged: (value) {
+                          setState(() {
+                            _agreeToSafety = value ?? false;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      const Expanded(
+                        child: Text(
+                          'I agree to respectful and safe interactions.',
                         ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'I understand this app is for real people, real sports, and respectful meetups.',
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
+
+          /// ERROR STATE
           if (_errorMessage != null) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: AppSpacing.md),
             Text(
               _errorMessage!,
               style: textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+                color: AppColors.error,
               ),
             ),
           ],
-          const SizedBox(height: 20),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          /// CTA
           FilledButton(
-            onPressed: _agreeToSafety && !_isSubmitting
-                ? () {
-                    _submit();
-                  }
-                : null,
-            child: Text(_isSubmitting ? 'Creating account...' : 'Continue to sports'),
+            onPressed: _agreeToSafety && !_isSubmitting ? _submit : null,
+            child: Text(
+              _isSubmitting ? 'Creating account...' : 'Continue',
+            ),
           ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () => Navigator.of(context).pushReplacementNamed(AppRoute.login.path),
-            child: const Text('Already registered? Sign in'),
+
+          const SizedBox(height: AppSpacing.sm),
+
+          /// SECONDARY ACTION
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.of(context)
+                  .pushReplacementNamed(AppRoute.login.path),
+              child: const Text('Already have an account? Sign in'),
+            ),
           ),
         ],
       ),
@@ -202,40 +249,46 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 }
 
+/// =======================
+/// AVATAR CARD (REFINED)
+/// =======================
+
 class _AvatarPickerCard extends StatelessWidget {
   const _AvatarPickerCard();
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return SectionCard(
       child: Row(
         children: [
           Container(
-            width: 86,
-            height: 86,
+            width: 80,
+            height: 80,
             decoration: BoxDecoration(
-              color: AppTheme.blush,
-              border: Border.all(color: AppTheme.line),
-              borderRadius: BorderRadius.circular(24),
+              color: AppColors.primary.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
             ),
             child: const Icon(
               Icons.add_a_photo_rounded,
-              size: 34,
-              color: AppTheme.ink,
+              size: 30,
+              color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(width: 18),
-          const Expanded(
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Add your first profile photo',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  'Add a profile photo',
+                  style: textTheme.titleLarge,
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'Keep it simple, clear, and real. The product should feel social first, not overdesigned.',
+                  'Clear and real photos build trust.',
+                  style: textTheme.bodyMedium,
                 ),
               ],
             ),

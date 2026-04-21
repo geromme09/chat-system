@@ -5,6 +5,7 @@ import '../../../core/session/app_session.dart';
 class SignUpRequest {
   const SignUpRequest({
     required this.email,
+    required this.username,
     required this.password,
     required this.displayName,
     required this.city,
@@ -14,6 +15,7 @@ class SignUpRequest {
   });
 
   final String email;
+  final String username;
   final String password;
   final String displayName;
   final String city;
@@ -24,6 +26,7 @@ class SignUpRequest {
   Map<String, dynamic> toJson() {
     return {
       'email': email,
+      'username': username,
       'password': password,
       'display_name': displayName,
       'bio': bio,
@@ -65,6 +68,23 @@ class AuthResult {
   }
 }
 
+class LoginRequest {
+  const LoginRequest({
+    required this.identifier,
+    required this.password,
+  });
+
+  final String identifier;
+  final String password;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'identifier': identifier,
+      'password': password,
+    };
+  }
+}
+
 class AuthApi {
   AuthApi({
     ApiClient? client,
@@ -75,6 +95,15 @@ class AuthApi {
   Future<AuthResult> signUp(SignUpRequest request) async {
     final response = await _client.post(
       '/api/v1/auth/signup',
+      body: request.toJson(),
+    );
+
+    return AuthResult.fromEnvelope(response);
+  }
+
+  Future<AuthResult> login(LoginRequest request) async {
+    final response = await _client.post(
+      '/api/v1/auth/login',
       body: request.toJson(),
     );
 

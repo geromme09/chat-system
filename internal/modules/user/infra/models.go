@@ -5,6 +5,7 @@ import "time"
 type userModel struct {
 	ID              string `gorm:"primaryKey"`
 	Email           string
+	Username        string
 	PasswordHash    string
 	AccountStatus   string
 	AuthProvider    string
@@ -40,4 +41,18 @@ type userSportModel struct {
 
 func (userSportModel) TableName() string {
 	return "user_sports"
+}
+
+type friendshipModel struct {
+	ID              string
+	RequesterUserID string
+	AddresseeUserID string
+	Status          string
+	SeenAt          *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+func (friendshipModel) TableName() string {
+	return "friendships"
 }
