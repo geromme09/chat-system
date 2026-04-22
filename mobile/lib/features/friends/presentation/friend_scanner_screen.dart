@@ -7,11 +7,21 @@ import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
+import '../../chat/data/chat_api.dart';
+import '../../chat/data/chat_unread_controller.dart';
+import '../../chat/presentation/chat_conversation_screen.dart';
 import '../data/friends_api.dart';
 import '../data/friend_search_api.dart';
 
 class FriendScannerScreen extends StatefulWidget {
-  const FriendScannerScreen({super.key});
+  const FriendScannerScreen({
+    super.key,
+    this.isEmbedded = false,
+    this.onOpenChatsTab,
+  });
+
+  final bool isEmbedded;
+  final VoidCallback? onOpenChatsTab;
 
   @override
   State<FriendScannerScreen> createState() => _FriendScannerScreenState();
@@ -20,20 +30,25 @@ class FriendScannerScreen extends StatefulWidget {
 class _FriendScannerScreenState extends State<FriendScannerScreen> {
   final FriendSearchApi _friendSearchApi = FriendSearchApi();
   final FriendsApi _friendsApi = FriendsApi();
+  final ChatApi _chatApi = ChatApi();
   final TextEditingController _searchController = TextEditingController();
 
   final List<FriendSearchResult> _results = <FriendSearchResult>[];
   final List<FriendRequestRecord> _incomingRequests = <FriendRequestRecord>[];
+  final List<FriendSummary> _friends = <FriendSummary>[];
   Timer? _searchDebounce;
   bool _isSearching = false;
   bool _isLoadingRequests = true;
+  bool _isLoadingFriends = true;
   String? _searchMessage;
   String? _requestMessage;
+  String? _friendsMessage;
 
   @override
   void initState() {
     super.initState();
     _loadIncomingRequests();
+    _loadFriends();
   }
 
   @override
@@ -44,8 +59,13 @@ class _FriendScannerScreenState extends State<FriendScannerScreen> {
   }
 
   void _openChats() {
+    if (widget.isEmbedded) {
+      widget.onOpenChatsTab?.call();
+      return;
+    }
+
     Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoute.chatHome.path,
+      AppRoute.appHome.path,
       (_) => false,
     );
   }
@@ -153,6 +173,7 @@ class _FriendScannerScreenState extends State<FriendScannerScreen> {
         action: action,
       );
       await _loadIncomingRequests();
+      await _loadFriends();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -237,165 +258,361 @@ class _FriendScannerScreenState extends State<FriendScannerScreen> {
     }
   }
 
+  Future<void> _loadFriends() async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingFriends = false;
+        _friendsMessage = 'Please sign in again to load your friends.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingFriends = true;
+      _friendsMessage = null;
+    });
+
+    try {
+      final friends = await _friendsApi.listFriends(token: token);
+
+      if (!mounted) return;
+      setState(() {
+        _friends
+          ..clear()
+          ..addAll(friends);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _friendsMessage = 'Unable to load your friends right now.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingFriends = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openChatWithFriend(FriendSummary friend) async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    try {
+      final conversation = await _chatApi.createConversation(
+        token: token,
+        request: CreateConversationRequest(
+          participantIDs: [friend.userID],
+        ),
+      );
+      await chatUnreadController.refresh();
+      if (!mounted) return;
+
+      await Navigator.of(context).pushNamed(
+        AppRoute.chatConversation.path,
+        arguments: ChatConversationArgs(
+          conversationID: conversation.id,
+          title:
+              friend.displayName.isEmpty ? friend.username : friend.displayName,
+          subtitle: friend.city.isEmpty ? '@${friend.username}' : friend.city,
+        ),
+      );
+      await _loadFriends();
+      await chatUnreadController.refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.toString().replaceFirst('HttpException: ', ''),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final content = FriendScannerContent(
+      isEmbedded: widget.isEmbedded,
+      isLoadingRequests: _isLoadingRequests,
+      requestMessage: _requestMessage,
+      incomingRequests: _incomingRequests,
+      isLoadingFriends: _isLoadingFriends,
+      friendsMessage: _friendsMessage,
+      friends: _friends,
+      searchController: _searchController,
+      isSearching: _isSearching,
+      searchMessage: _searchMessage,
+      results: _results,
+      onSearchChanged: (value) {
+        _searchDebounce?.cancel();
+        _searchDebounce = Timer(
+          const Duration(milliseconds: 350),
+          () => _runSearch(value),
+        );
+      },
+      onAcceptRequest: (request) => _respondToRequest(request, 'accept'),
+      onDeclineRequest: (request) => _respondToRequest(request, 'decline'),
+      onAddFriend: _sendFriendRequest,
+      onOpenChatWithFriend: _openChatWithFriend,
+      onOpenChats: _openChats,
+    );
+
+    if (widget.isEmbedded) {
+      return content;
+    }
+
+    return BrandShell(
+      showBack: true,
+      child: content,
+    );
+  }
+}
+
+class FriendScannerContent extends StatelessWidget {
+  const FriendScannerContent({
+    super.key,
+    required this.isLoadingRequests,
+    required this.requestMessage,
+    required this.incomingRequests,
+    required this.isLoadingFriends,
+    required this.friendsMessage,
+    required this.friends,
+    required this.searchController,
+    required this.isSearching,
+    required this.searchMessage,
+    required this.results,
+    required this.onSearchChanged,
+    required this.onAcceptRequest,
+    required this.onDeclineRequest,
+    required this.onAddFriend,
+    required this.onOpenChatWithFriend,
+    required this.onOpenChats,
+    this.isEmbedded = false,
+  });
+
+  final bool isEmbedded;
+  final bool isLoadingRequests;
+  final String? requestMessage;
+  final List<FriendRequestRecord> incomingRequests;
+  final bool isLoadingFriends;
+  final String? friendsMessage;
+  final List<FriendSummary> friends;
+  final TextEditingController searchController;
+  final bool isSearching;
+  final String? searchMessage;
+  final List<FriendSearchResult> results;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<FriendRequestRecord> onAcceptRequest;
+  final ValueChanged<FriendRequestRecord> onDeclineRequest;
+  final ValueChanged<FriendSearchResult> onAddFriend;
+  final ValueChanged<FriendSummary> onOpenChatWithFriend;
+  final VoidCallback onOpenChats;
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return BrandShell(
-      showBack: true,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg,
-          AppSpacing.sm,
-          AppSpacing.lg,
-          AppSpacing.xl,
+    final listView = ListView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.sm,
+        AppSpacing.lg,
+        AppSpacing.xl,
+      ),
+      children: [
+        Text(
+          'Scan and add friends',
+          style: textTheme.headlineMedium,
         ),
-        children: [
-          Text(
-            'Scan and add friends',
-            style: textTheme.headlineMedium,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Build your trusted circle first, then we can open the chat flow on top of it.',
-            style: textTheme.bodyMedium,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          const _ScannerPreviewCard(),
-          const SizedBox(height: AppSpacing.lg),
-          SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Build your trusted circle first, then we can open the chat flow on top of it.',
+          style: textTheme.bodyMedium,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const _ScannerPreviewCard(),
+        const SizedBox(height: AppSpacing.lg),
+        SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Friend requests',
+                style: textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (isLoadingRequests)
+                const Padding(
+                  padding: EdgeInsets.symmetric(
+                    vertical: AppSpacing.md,
+                  ),
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (requestMessage != null)
                 Text(
-                  'Friend requests',
-                  style: textTheme.titleLarge,
+                  requestMessage!,
+                  style: textTheme.bodyMedium,
+                )
+              else if (incomingRequests.isEmpty)
+                Text(
+                  'No pending friend requests yet.',
+                  style: textTheme.bodyMedium,
+                )
+              else
+                Column(
+                  children: incomingRequests
+                      .map(
+                        (request) => Padding(
+                          padding: const EdgeInsets.only(
+                            top: AppSpacing.sm,
+                          ),
+                          child: _IncomingRequestTile(
+                            request: request,
+                            onAccept: () => onAcceptRequest(request),
+                            onDecline: () => onDeclineRequest(request),
+                          ),
+                        ),
+                      )
+                      .toList(),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                if (_isLoadingRequests)
-                  const Padding(
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your friends',
+                style: textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (isLoadingFriends)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (friendsMessage != null)
+                Text(
+                  friendsMessage!,
+                  style: textTheme.bodyMedium,
+                )
+              else if (friends.isEmpty)
+                Text(
+                  'Accept a friend request to start a direct chat.',
+                  style: textTheme.bodyMedium,
+                )
+              else
+                Column(
+                  children: friends
+                      .map(
+                        (friend) => Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.sm),
+                          child: _FriendTile(
+                            friend: friend,
+                            onChat: () => onOpenChatWithFriend(friend),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        SectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Find by username',
+                style: textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Search by username to add a friend. We start searching after 2 characters with a short debounce.',
+                style: textTheme.bodyMedium,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: searchController,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  labelText: 'Username search',
+                  hintText: 'Search like ge',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+                onChanged: onSearchChanged,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              if (isSearching)
+                const Center(
+                  child: Padding(
                     padding: EdgeInsets.symmetric(
                       vertical: AppSpacing.md,
                     ),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (_requestMessage != null)
-                  Text(
-                    _requestMessage!,
-                    style: textTheme.bodyMedium,
-                  )
-                else if (_incomingRequests.isEmpty)
-                  Text(
-                    'No pending friend requests yet.',
-                    style: textTheme.bodyMedium,
-                  )
-                else
-                  Column(
-                    children: _incomingRequests
-                        .map(
-                          (request) => Padding(
-                            padding: const EdgeInsets.only(
-                              top: AppSpacing.sm,
-                            ),
-                            child: _IncomingRequestTile(
-                              request: request,
-                              onAccept: () =>
-                                  _respondToRequest(request, 'accept'),
-                              onDecline: () =>
-                                  _respondToRequest(request, 'decline'),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                    child: CircularProgressIndicator(),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+                )
+              else if (searchMessage != null)
                 Text(
-                  'Find by username',
-                  style: textTheme.titleLarge,
-                ),
-                const SizedBox(height: AppSpacing.sm),
+                  searchMessage!,
+                  style: textTheme.bodyMedium,
+                )
+              else if (results.isNotEmpty)
+                Column(
+                  children: results
+                      .map(
+                        (result) => Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: AppSpacing.sm,
+                          ),
+                          child: _SearchResultTile(
+                            result: result,
+                            onAdd: () => onAddFriend(result),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                )
+              else
                 Text(
-                  'Search by username to add a friend. We start searching after 2 characters with a short debounce.',
+                  'Search results will appear here.',
                   style: textTheme.bodyMedium,
                 ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: _searchController,
-                  textInputAction: TextInputAction.search,
-                  decoration: const InputDecoration(
-                    labelText: 'Username search',
-                    hintText: 'Search like ge',
-                    prefixIcon: Icon(Icons.search_rounded),
-                  ),
-                  onChanged: (value) {
-                    _searchDebounce?.cancel();
-                    _searchDebounce = Timer(
-                      const Duration(milliseconds: 350),
-                      () => _runSearch(value),
-                    );
-                  },
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (_isSearching)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        vertical: AppSpacing.md,
-                      ),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (_searchMessage != null)
-                  Text(
-                    _searchMessage!,
-                    style: textTheme.bodyMedium,
-                  )
-                else if (_results.isNotEmpty)
-                  Column(
-                    children: _results
-                        .map(
-                          (result) => Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: AppSpacing.sm,
-                            ),
-                            child: _SearchResultTile(
-                              result: result,
-                              onAdd: () => _sendFriendRequest(result),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  )
-                else
-                  Text(
-                    'Search results will appear here.',
-                    style: textTheme.bodyMedium,
-                  ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.lg),
-          OutlinedButton(
-            onPressed: _openChats,
-            child: const Text('Skip for now'),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        OutlinedButton(
+          onPressed: onOpenChats,
+          child: Text(isEmbedded ? 'Back to chats' : 'Skip for now'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        FilledButton(
+          onPressed: onOpenChats,
+          child: Text(
+            isEmbedded ? 'Open chats tab' : 'Continue to chats',
           ),
-          const SizedBox(height: AppSpacing.sm),
-          FilledButton(
-            onPressed: _openChats,
-            child: const Text('Continue to chats'),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
+
+    if (isEmbedded) {
+      return SafeArea(child: listView);
+    }
+
+    return listView;
   }
 }
 
@@ -690,6 +907,74 @@ class _IncomingRequestTile extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FriendTile extends StatelessWidget {
+  const _FriendTile({
+    required this.friend,
+    required this.onChat,
+  });
+
+  final FriendSummary friend;
+  final VoidCallback onChat;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.primarySoft,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+            ),
+            child: const Icon(
+              Icons.person_rounded,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  friend.displayName.isEmpty
+                      ? friend.username
+                      : friend.displayName,
+                  style: textTheme.titleMedium,
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  friend.city.isEmpty ? '@${friend.username}' : friend.city,
+                  style: textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          FilledButton(
+            onPressed: onChat,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            ),
+            child: const Text('Chat'),
           ),
         ],
       ),

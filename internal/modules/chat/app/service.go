@@ -13,9 +13,15 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/validate"
 )
 
-// UserLookup is the only user-domain capability chat needs for conversation setup.
+var errConversationAccessDenied = errors.New("conversation access denied")
+
 type UserLookup interface {
 	GetUser(ctx context.Context, userID string) (userdomain.User, error)
+	GetFriendshipBetween(ctx context.Context, userAID, userBID string) (userdomain.FriendRequest, error)
+}
+
+type RealtimeNotifier interface {
+	NotifyMessageCreated(ctx context.Context, conversation domain.Conversation, message domain.Message) error
 }
 
 type CreateConversationInput struct {
@@ -30,15 +36,17 @@ type Service struct {
 	repo       domain.Repository
 	users      UserLookup
 	publisher  messaging.Publisher
+	notifier   RealtimeNotifier
 	timeSource func() time.Time
 	idSource   func(prefix string) string
 }
 
-func NewService(repo domain.Repository, users UserLookup, publisher messaging.Publisher) *Service {
+func NewService(repo domain.Repository, users UserLookup, publisher messaging.Publisher, notifier RealtimeNotifier) *Service {
 	return &Service{
 		repo:      repo,
 		users:     users,
 		publisher: publisher,
+		notifier:  notifier,
 		timeSource: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -51,33 +59,50 @@ func (s *Service) CreateConversation(ctx context.Context, actorUserID string, in
 		return domain.Conversation{}, err
 	}
 
-	participantSet := map[string]struct{}{actorUserID: {}}
+	participantIDs := make([]string, 0, len(input.ParticipantIDs))
+	participantSet := map[string]struct{}{}
 	for _, participantID := range input.ParticipantIDs {
 		participantID = strings.TrimSpace(participantID)
-		if participantID == "" {
+		if participantID == "" || participantID == actorUserID {
+			continue
+		}
+		if _, exists := participantSet[participantID]; exists {
 			continue
 		}
 		if _, err := s.users.GetUser(ctx, participantID); err != nil {
 			return domain.Conversation{}, err
 		}
 		participantSet[participantID] = struct{}{}
+		participantIDs = append(participantIDs, participantID)
 	}
 
-	participants := make([]string, 0, len(participantSet))
-	for id := range participantSet {
-		participants = append(participants, id)
+	if len(participantIDs) != domain.DirectConversationParticipantCount-1 {
+		return domain.Conversation{}, errors.New("chat currently supports one accepted friend at a time")
+	}
+
+	friendID := participantIDs[0]
+	friendship, err := s.users.GetFriendshipBetween(ctx, actorUserID, friendID)
+	if err != nil {
+		return domain.Conversation{}, err
+	}
+	if friendship.Status != userdomain.FriendRequestStatusAccepted {
+		return domain.Conversation{}, errors.New("conversation requires an accepted friendship")
+	}
+
+	if existing, err := s.repo.FindDirectConversation(ctx, actorUserID, friendID); err == nil {
+		return existing, nil
 	}
 
 	conversation := domain.Conversation{
 		ID:             s.idSource("conv"),
-		ParticipantIDs: participants,
+		ParticipantIDs: []string{actorUserID, friendID},
 		CreatedAt:      s.timeSource(),
 	}
 	if err := s.repo.CreateConversation(ctx, conversation); err != nil {
 		return domain.Conversation{}, err
 	}
 
-	return conversation, nil
+	return s.repo.GetConversation(ctx, conversation.ID)
 }
 
 func (s *Service) ListConversations(ctx context.Context, actorUserID string) ([]domain.Conversation, error) {
@@ -85,15 +110,12 @@ func (s *Service) ListConversations(ctx context.Context, actorUserID string) ([]
 }
 
 func (s *Service) ListMessages(ctx context.Context, actorUserID, conversationID string) ([]domain.Message, error) {
-	conversation, err := s.repo.GetConversation(ctx, conversationID)
+	conversation, err := s.getAccessibleConversation(ctx, actorUserID, conversationID)
 	if err != nil {
 		return nil, err
 	}
-	if !contains(conversation.ParticipantIDs, actorUserID) {
-		return nil, errors.New("conversation access denied")
-	}
 
-	return s.repo.ListMessages(ctx, conversationID)
+	return s.repo.ListMessages(ctx, conversation.ID, actorUserID)
 }
 
 func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID string, input SendMessageInput) (domain.Message, error) {
@@ -101,19 +123,24 @@ func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID s
 		return domain.Message{}, err
 	}
 
-	conversation, err := s.repo.GetConversation(ctx, conversationID)
+	body := strings.TrimSpace(input.Body)
+	if body == "" {
+		return domain.Message{}, errors.New("message body is required")
+	}
+	if len(body) > domain.MaxMessageBodyLength {
+		return domain.Message{}, errors.New("message body is too long")
+	}
+
+	conversation, err := s.getAccessibleConversation(ctx, actorUserID, conversationID)
 	if err != nil {
 		return domain.Message{}, err
-	}
-	if !contains(conversation.ParticipantIDs, actorUserID) {
-		return domain.Message{}, errors.New("conversation access denied")
 	}
 
 	message := domain.Message{
 		ID:             s.idSource("msg"),
 		ConversationID: conversationID,
 		SenderUserID:   actorUserID,
-		Body:           strings.TrimSpace(input.Body),
+		Body:           body,
 		CreatedAt:      s.timeSource(),
 	}
 	if err := s.repo.CreateMessage(ctx, message); err != nil {
@@ -121,17 +148,58 @@ func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID s
 	}
 
 	_ = s.publisher.Publish(ctx, messaging.Event{
-		Name:        "chat.message.sent",
+		Name:        domain.EventMessageCreated,
 		Version:     1,
-		Aggregate:   "conversation",
+		Aggregate:   domain.AggregateConversation,
 		AggregateID: conversationID,
 		Payload: map[string]any{
-			"message_id": message.ID,
-			"sender_id":  actorUserID,
+			domain.EventPayloadMessage: message,
 		},
 	})
 
+	if s.notifier != nil {
+		_ = s.notifier.NotifyMessageCreated(ctx, conversation, message)
+	}
+
 	return message, nil
+}
+
+func (s *Service) MarkConversationRead(ctx context.Context, actorUserID, conversationID string) (domain.ConversationReadResult, error) {
+	conversation, err := s.getAccessibleConversation(ctx, actorUserID, conversationID)
+	if err != nil {
+		return domain.ConversationReadResult{}, err
+	}
+
+	markedCount, err := s.repo.MarkConversationRead(ctx, conversation.ID, actorUserID, s.timeSource())
+	if err != nil {
+		return domain.ConversationReadResult{}, err
+	}
+
+	return domain.ConversationReadResult{
+		ConversationID: conversationID,
+		MarkedCount:    markedCount,
+	}, nil
+}
+
+func (s *Service) GetUnreadCount(ctx context.Context, actorUserID string) (domain.UnreadCount, error) {
+	total, err := s.repo.GetUnreadCount(ctx, actorUserID)
+	if err != nil {
+		return domain.UnreadCount{}, err
+	}
+
+	return domain.UnreadCount{Total: total}, nil
+}
+
+func (s *Service) getAccessibleConversation(ctx context.Context, actorUserID, conversationID string) (domain.Conversation, error) {
+	conversation, err := s.repo.GetConversation(ctx, conversationID)
+	if err != nil {
+		return domain.Conversation{}, err
+	}
+	if !contains(conversation.ParticipantIDs, actorUserID) {
+		return domain.Conversation{}, errConversationAccessDenied
+	}
+
+	return conversation, nil
 }
 
 func contains(values []string, target string) bool {

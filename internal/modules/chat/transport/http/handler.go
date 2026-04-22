@@ -9,6 +9,12 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/response"
 )
 
+const (
+	chatConversationsPathPrefix = "/api/v1/chat/conversations/"
+	chatMessagesPathSegment     = "messages"
+	chatReadPathSegment         = "read"
+)
+
 type ListConversationsHandler struct {
 	service *app.Service
 }
@@ -17,7 +23,11 @@ type CreateConversationHandler struct {
 	service *app.Service
 }
 
-type ConversationMessagesHandler struct {
+type ConversationDetailHandler struct {
+	service *app.Service
+}
+
+type UnreadCountHandler struct {
 	service *app.Service
 }
 
@@ -29,18 +39,14 @@ func NewCreateConversationHandler(service *app.Service) *CreateConversationHandl
 	return &CreateConversationHandler{service: service}
 }
 
-func NewConversationMessagesHandler(service *app.Service) *ConversationMessagesHandler {
-	return &ConversationMessagesHandler{service: service}
+func NewConversationDetailHandler(service *app.Service) *ConversationDetailHandler {
+	return &ConversationDetailHandler{service: service}
 }
 
-// Serve lists current user's conversations.
-// @Summary List conversations
-// @Tags chat
-// @Produce json
-// @Success 200 {object} response.ApiResponse
-// @Failure 401 {object} response.ApiResponse
-// @Failure 400 {object} response.ApiResponse
-// @Router /api/v1/chat/conversations [get]
+func NewUnreadCountHandler(service *app.Service) *UnreadCountHandler {
+	return &UnreadCountHandler{service: service}
+}
+
 func (h *ListConversationsHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -55,16 +61,6 @@ func (h *ListConversationsHandler) Serve(ctx httpx.Context) response.ApiResponse
 	return response.Ok(conversations, nil)
 }
 
-// Serve creates a conversation.
-// @Summary Create conversation
-// @Tags chat
-// @Accept json
-// @Produce json
-// @Param request body app.CreateConversationInput true "Conversation payload"
-// @Success 201 {object} response.ApiResponse
-// @Failure 401 {object} response.ApiResponse
-// @Failure 400 {object} response.ApiResponse
-// @Router /api/v1/chat/conversations [post]
 func (h *CreateConversationHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -84,40 +80,25 @@ func (h *CreateConversationHandler) Serve(ctx httpx.Context) response.ApiRespons
 	return response.Created(conversation)
 }
 
-// Serve routes conversation message operations.
-// @Summary List or send conversation messages
-// @Tags chat
-// @Accept json
-// @Produce json
-// @Success 200 {object} response.ApiResponse
-// @Success 201 {object} response.ApiResponse
-// @Failure 400 {object} response.ApiResponse
-// @Failure 401 {object} response.ApiResponse
-// @Failure 404 {object} response.ApiResponse
-// @Failure 405 {object} response.ApiResponse
-// @Router /api/v1/chat/conversations/{id}/messages [get]
-// @Router /api/v1/chat/conversations/{id}/messages [post]
-func (h *ConversationMessagesHandler) Serve(ctx httpx.Context) response.ApiResponse {
+func (h *ConversationDetailHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
 		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	path := strings.TrimPrefix(ctx.Request.URL.Path, "/api/v1/chat/conversations/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 || parts[1] != "messages" {
+	conversationID, action, valid := parseConversationPath(ctx.Request.URL.Path)
+	if !valid {
 		return response.NotFound("resource not found")
 	}
 
-	conversationID := parts[0]
-	switch ctx.Request.Method {
-	case "GET":
+	switch {
+	case ctx.Request.Method == "GET" && action == chatMessagesPathSegment:
 		messages, err := h.service.ListMessages(ctx.Request.Context(), userID, conversationID)
 		if err != nil {
 			return response.BadRequest(err)
 		}
 		return response.Ok(messages, nil)
-	case "POST":
+	case ctx.Request.Method == "POST" && action == chatMessagesPathSegment:
 		var input app.SendMessageInput
 		if err := ctx.DecodeJSON(&input); err != nil {
 			return response.BadRequest(errors.New("invalid request body"))
@@ -128,7 +109,37 @@ func (h *ConversationMessagesHandler) Serve(ctx httpx.Context) response.ApiRespo
 			return response.BadRequest(err)
 		}
 		return response.Created(message)
+	case ctx.Request.Method == "POST" && action == chatReadPathSegment:
+		result, err := h.service.MarkConversationRead(ctx.Request.Context(), userID, conversationID)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(result, nil)
 	default:
 		return response.MethodNotAllowed()
 	}
+}
+
+func (h *UnreadCountHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	userID, ok := ctx.UserID()
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	unreadCount, err := h.service.GetUnreadCount(ctx.Request.Context(), userID)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(unreadCount, nil)
+}
+
+func parseConversationPath(path string) (conversationID string, action string, ok bool) {
+	path = strings.TrimPrefix(path, chatConversationsPathPrefix)
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
 }

@@ -65,7 +65,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
       if (!mounted) return;
 
-      Navigator.of(context).pushNamed(AppRoute.sportsSelection.path);
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        AppRoute.sportsSelection.path,
+        (_) => false,
+      );
     } catch (error) {
       if (!mounted) return;
 

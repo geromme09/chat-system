@@ -16,4 +16,21 @@ class AppConfig {
 
     return appleSimulatorApiBaseUrl;
   }
+
+  static String get chatWebSocketUrl {
+    final uri = Uri.parse(apiBaseUrl);
+    final scheme = switch (uri.scheme) {
+      'https' => 'wss',
+      'http' => 'ws',
+      _ => uri.scheme,
+    };
+
+    return uri
+        .replace(
+          scheme: scheme,
+          path: '/ws/chat',
+          queryParameters: null,
+        )
+        .toString();
+  }
 }

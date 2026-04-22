@@ -5,25 +5,35 @@ import 'package:flutter/material.dart';
 /// =======================
 
 class AppColors {
-  static const background = Color(0xFFFAFAFA);
-  static const surface = Colors.white;
+  // Base
+  static const background = Color(0xFFF7F8FB);
+  static const surface = Color(0xFFFFFFFF);
+  static const surfaceSoft = Color(0xFFF3F4F8);
 
+  // Text
   static const textPrimary = Color(0xFF1A1A1A);
-  static const textSecondary = Color(0xFF6B7280);
+  static const textSecondary = Color(0xFF70758C);
 
+  // Primary (Purple)
   static const primary = Color(0xFF6F75F5);
-  static const primarySoft = Color(0xFFF1F2FF);
   static const primaryLight = Color(0xFFDDE0FF);
+  static const primarySoft = Color(0xFFF1F2FF);
+  static const primaryPressed = Color(0xFF5C62E8);
 
+  // Accent (Peach)
   static const accent = Color(0xFFFFB4A2);
   static const accentSoft = Color(0xFFFFF1EC);
   static const accentStrong = Color(0xFFFF8A65);
 
-  static const border = Color(0xFFE2E5EA);
+  // Borders
+  static const border = Color(0xFFE4E7EC);
+  static const borderFocus = Color(0xFF6F75F5);
 
+  // States
   static const error = Color(0xFFB42318);
 
-
+  // Effects
+  static const primaryGlow = Color(0x336F75F5);
 }
 
 class AppSpacing {

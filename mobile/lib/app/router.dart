@@ -6,6 +6,7 @@ import '../features/auth/presentation/welcome_screen.dart';
 import '../features/chat/presentation/chat_conversation_screen.dart';
 import '../features/chat/presentation/chat_home_screen.dart';
 import '../features/friends/presentation/friend_scanner_screen.dart';
+import '../features/home/presentation/home_shell_screen.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
 import '../features/sports/presentation/sports_selection_screen.dart';
 
@@ -15,6 +16,7 @@ enum AppRoute {
   login('/login'),
   sportsSelection('/sports-selection'),
   profileSetup('/profile-setup'),
+  appHome('/home'),
   friendScanner('/friend-scanner'),
   chatConversation('/chat-conversation'),
   chatHome('/chat-home');
@@ -61,6 +63,14 @@ class AppRouter {
           builder: (_) => ProfileSetupScreen(selectedSports: selectedSports),
           settings: settings,
         );
+      case '/home':
+        final homeArgs = settings.arguments is HomeShellArgs
+            ? settings.arguments! as HomeShellArgs
+            : const HomeShellArgs();
+        return MaterialPageRoute<void>(
+          builder: (_) => HomeShellScreen(args: homeArgs),
+          settings: settings,
+        );
       case '/chat-home':
         return MaterialPageRoute<void>(
           builder: (_) => const ChatHomeScreen(),
@@ -70,9 +80,9 @@ class AppRouter {
         final chatArgs = settings.arguments is ChatConversationArgs
             ? settings.arguments! as ChatConversationArgs
             : const ChatConversationArgs(
-                name: 'Friend',
-                sport: 'Sport',
-                lastSeenLabel: 'Active recently',
+                conversationID: '',
+                title: 'Friend',
+                subtitle: 'Conversation',
               );
         return MaterialPageRoute<void>(
           builder: (_) => ChatConversationScreen(args: chatArgs),

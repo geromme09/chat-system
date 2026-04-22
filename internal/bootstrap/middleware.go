@@ -1,10 +1,12 @@
 package bootstrap
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"math"
@@ -63,6 +65,25 @@ func (r *statusRecorder) Write(body []byte) (int, error) {
 func (r *statusRecorder) WriteHeader(statusCode int) {
 	r.statusCode = statusCode
 	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+
+	return hijacker.Hijack()
+}
+
+func (r *statusRecorder) Flush() {
+	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func requestLoggingMiddleware(logger *slog.Logger, logBodies bool, bodyMaxBytes int, next http.Handler) http.Handler {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	chathttp "github.com/geromme09/chat-system/internal/modules/chat/transport/http"
+	chatws "github.com/geromme09/chat-system/internal/modules/chat/transport/ws"
 	sporthttp "github.com/geromme09/chat-system/internal/modules/sport/transport/http"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	userhttp "github.com/geromme09/chat-system/internal/modules/user/transport/http"
@@ -18,10 +19,12 @@ import (
 func RunHTTP(app *App) error {
 	mux := http.NewServeMux()
 	tokenManager := auth.NewTokenManager(app.Config.TokenSecret)
+	chatWSHandler := chatws.NewHandler(tokenManager, app.ChatHub)
 	limiter := newRateLimiter(app.Config.RateLimitRequestsPerS, app.Config.RateLimitBurst)
 
 	mux.HandleFunc("GET /healthz", httpx.Health)
 	mux.Handle("GET /swagger/", httpSwagger.WrapHandler)
+	mux.Handle("GET /ws/chat", chatWSHandler)
 	mux.HandleFunc("POST /api/v1/auth/signup", httpx.MakeHandler(userhttp.NewSignUpHandler(app.UserService)))
 	mux.HandleFunc("POST /api/v1/auth/login", httpx.MakeHandler(userhttp.NewLoginHandler(app.UserService)))
 	mux.HandleFunc("GET /api/v1/sports", httpx.MakeHandler(sporthttp.NewListSportsHandler(app.SportService)))
@@ -42,8 +45,9 @@ func RunHTTP(app *App) error {
 	mux.Handle("GET /api/v1/friends", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewListFriendsHandler(app.UserService))))
 	mux.Handle("GET /api/v1/chat/conversations", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewListConversationsHandler(app.ChatService))))
 	mux.Handle("POST /api/v1/chat/conversations", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewCreateConversationHandler(app.ChatService))))
-	mux.Handle("GET /api/v1/chat/conversations/", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewConversationMessagesHandler(app.ChatService))))
-	mux.Handle("POST /api/v1/chat/conversations/", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewConversationMessagesHandler(app.ChatService))))
+	mux.Handle("GET /api/v1/chat/unread-count", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewUnreadCountHandler(app.ChatService))))
+	mux.Handle("GET /api/v1/chat/conversations/", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewConversationDetailHandler(app.ChatService))))
+	mux.Handle("POST /api/v1/chat/conversations/", authMiddleware(tokenManager, httpx.MakeHandler(chathttp.NewConversationDetailHandler(app.ChatService))))
 
 	handler := limiter.middleware(mux)
 	if app.Config.HTTPLogEnabled {

@@ -5,7 +5,6 @@ import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
-import '../../auth/presentation/welcome_screen.dart';
 import '../data/profile_api.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -77,16 +76,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       );
 
       appSession.updateProfile(updatedProfile);
-      appSession.clear();
 
       if (!mounted) return;
 
       Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoute.welcome.path,
+        AppRoute.appHome.path,
         (_) => false,
-        arguments: const WelcomeScreenArgs(
-          successMessage: 'Registration complete',
-        ),
       );
     } catch (error) {
       if (!mounted) return;

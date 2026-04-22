@@ -7,8 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/geromme09/chat-system/internal/modules/chat/app"
+	chatapp "github.com/geromme09/chat-system/internal/modules/chat/app"
 	chatinfra "github.com/geromme09/chat-system/internal/modules/chat/infra"
+	chatws "github.com/geromme09/chat-system/internal/modules/chat/transport/ws"
 	sportapp "github.com/geromme09/chat-system/internal/modules/sport/app"
 	sportinfra "github.com/geromme09/chat-system/internal/modules/sport/infra"
 	userapp "github.com/geromme09/chat-system/internal/modules/user/app"
@@ -30,7 +31,8 @@ type App struct {
 	Logger       *slog.Logger
 	UserService  *userapp.Service
 	SportService *sportapp.Service
-	ChatService  *app.Service
+	ChatService  *chatapp.Service
+	ChatHub      *chatws.Hub
 	Publisher    messaging.Publisher
 }
 
@@ -46,14 +48,15 @@ func NewApp() (*App, error) {
 	passwordHasher := auth.PasswordHasher{}
 	storageService := storage.NewService(cfg.StorageBaseURL)
 	userRepo := userinfra.NewPostgresRepository(db)
-	chatRepo := chatinfra.NewMemoryRepository()
+	chatRepo := chatinfra.NewPostgresRepository(db)
+	chatHub := chatws.NewHub(logger, chatRepo)
 	publisher := messaging.NoopPublisher{}
 	sportRepo := sportinfra.NewPostgresRepository(db)
 	sportCache := sportCache(cfg)
 
 	userService := userapp.NewService(userRepo, passwordHasher, tokenManager, storageService)
 	sportsService := sportapp.NewService(sportRepo, sportCache)
-	chatService := app.NewService(chatRepo, userRepo, publisher)
+	chatService := chatapp.NewService(chatRepo, userRepo, publisher, chatHub)
 
 	return &App{
 		Config:       cfg,
@@ -62,6 +65,7 @@ func NewApp() (*App, error) {
 		UserService:  userService,
 		SportService: sportsService,
 		ChatService:  chatService,
+		ChatHub:      chatHub,
 		Publisher:    publisher,
 	}, nil
 }

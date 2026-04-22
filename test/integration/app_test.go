@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	chatapp "github.com/geromme09/chat-system/internal/modules/chat/app"
-	chatinfra "github.com/geromme09/chat-system/internal/modules/chat/infra"
+	chatdomain "github.com/geromme09/chat-system/internal/modules/chat/domain"
 	userapp "github.com/geromme09/chat-system/internal/modules/user/app"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	"github.com/geromme09/chat-system/internal/platform/auth"
@@ -18,9 +19,9 @@ import (
 
 func TestSignUpLoginAndChatFlow(t *testing.T) {
 	userRepo := newUserRepositoryStub()
-	chatRepo := chatinfra.NewMemoryRepository()
+	chatRepo := newChatRepositoryStub()
 	userService := userapp.NewService(userRepo, auth.PasswordHasher{}, auth.NewTokenManager("test-secret"), storage.NewService("https://cdn.test"))
-	chatService := chatapp.NewService(chatRepo, userRepo, messaging.NoopPublisher{})
+	chatService := chatapp.NewService(chatRepo, userRepo, messaging.NoopPublisher{}, nil)
 
 	ctx := context.Background()
 
@@ -292,4 +293,128 @@ func (r *userRepositoryStub) userCard(userID string) userdomain.UserCard {
 		AvatarURL:   profile.AvatarURL,
 		City:        profile.City,
 	}
+}
+
+type chatRepositoryStub struct {
+	mu            sync.RWMutex
+	conversations map[string]chatdomain.Conversation
+	messages      map[string][]chatdomain.Message
+}
+
+func newChatRepositoryStub() *chatRepositoryStub {
+	return &chatRepositoryStub{
+		conversations: map[string]chatdomain.Conversation{},
+		messages:      map[string][]chatdomain.Message{},
+	}
+}
+
+func (r *chatRepositoryStub) CreateConversation(_ context.Context, conversation chatdomain.Conversation) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.conversations[conversation.ID] = conversation
+	return nil
+}
+
+func (r *chatRepositoryStub) FindDirectConversation(_ context.Context, userAID, userBID string) (chatdomain.Conversation, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, conversation := range r.conversations {
+		if len(conversation.ParticipantIDs) != 2 {
+			continue
+		}
+		if containsParticipant(conversation.ParticipantIDs, userAID) &&
+			containsParticipant(conversation.ParticipantIDs, userBID) {
+			return conversation, nil
+		}
+	}
+
+	return chatdomain.Conversation{}, errors.New("conversation not found")
+}
+
+func (r *chatRepositoryStub) ListConversations(_ context.Context, userID string) ([]chatdomain.Conversation, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	conversations := make([]chatdomain.Conversation, 0)
+	for _, conversation := range r.conversations {
+		if containsParticipant(conversation.ParticipantIDs, userID) {
+			conversations = append(conversations, conversation)
+		}
+	}
+
+	return conversations, nil
+}
+
+func (r *chatRepositoryStub) GetConversation(_ context.Context, conversationID string) (chatdomain.Conversation, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	conversation, ok := r.conversations[conversationID]
+	if !ok {
+		return chatdomain.Conversation{}, errors.New("conversation not found")
+	}
+
+	return conversation, nil
+}
+
+func (r *chatRepositoryStub) CreateMessage(_ context.Context, message chatdomain.Message) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.messages[message.ConversationID] = append(r.messages[message.ConversationID], message)
+	return nil
+}
+
+func (r *chatRepositoryStub) ListMessages(_ context.Context, conversationID, _ string) ([]chatdomain.Message, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return append([]chatdomain.Message{}, r.messages[conversationID]...), nil
+}
+
+func (r *chatRepositoryStub) MarkConversationRead(_ context.Context, conversationID, userID string, readAt time.Time) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var marked int64
+	messages := r.messages[conversationID]
+	for index, message := range messages {
+		if message.SenderUserID == userID || message.ReadAt != nil {
+			continue
+		}
+		message.ReadAt = &readAt
+		messages[index] = message
+		marked++
+	}
+	r.messages[conversationID] = messages
+
+	return marked, nil
+}
+
+func (r *chatRepositoryStub) GetUnreadCount(_ context.Context, userID string) (int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var total int64
+	for _, messages := range r.messages {
+		for _, message := range messages {
+			if message.SenderUserID != userID && message.ReadAt == nil {
+				total++
+			}
+		}
+	}
+
+	return total, nil
+}
+
+func containsParticipant(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }

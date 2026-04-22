@@ -77,11 +77,14 @@ class ApiClient {
       };
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (authToken != null && authToken.isNotEmpty) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $authToken');
+        request.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer $authToken');
       }
       if (body != null) {
-        request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-        request.write(jsonEncode(body));
+        final encodedBody = utf8.encode(jsonEncode(body));
+        request.headers.contentType = ContentType.json;
+        request.headers.contentLength = encodedBody.length;
+        request.add(encodedBody);
       }
 
       final response = await request.close();

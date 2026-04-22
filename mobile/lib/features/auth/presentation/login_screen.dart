@@ -90,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       Navigator.of(context).pushNamedAndRemoveUntil(
         hasFinishedProfile
-            ? AppRoute.chatHome.path
+            ? AppRoute.appHome.path
             : AppRoute.sportsSelection.path,
         (_) => false,
       );
