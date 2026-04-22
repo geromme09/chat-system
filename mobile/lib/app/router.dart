@@ -5,7 +5,6 @@ import '../features/auth/presentation/sign_up_screen.dart';
 import '../features/auth/presentation/welcome_screen.dart';
 import '../features/chat/presentation/chat_conversation_screen.dart';
 import '../features/chat/presentation/chat_home_screen.dart';
-import '../features/friends/presentation/friend_scanner_screen.dart';
 import '../features/home/presentation/home_shell_screen.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
 import '../features/sports/presentation/sports_selection_screen.dart';
@@ -17,7 +16,6 @@ enum AppRoute {
   sportsSelection('/sports-selection'),
   profileSetup('/profile-setup'),
   appHome('/home'),
-  friendScanner('/friend-scanner'),
   chatConversation('/chat-conversation'),
   chatHome('/chat-home');
 
@@ -33,12 +31,12 @@ class AppRouter {
         final welcomeArgs = settings.arguments is WelcomeScreenArgs
             ? settings.arguments! as WelcomeScreenArgs
             : const WelcomeScreenArgs();
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => WelcomeScreen(args: welcomeArgs),
           settings: settings,
         );
       case '/sign-up':
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => const SignUpScreen(),
           settings: settings,
         );
@@ -46,12 +44,12 @@ class AppRouter {
         final loginArgs = settings.arguments is LoginScreenArgs
             ? settings.arguments! as LoginScreenArgs
             : const LoginScreenArgs();
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => LoginScreen(args: loginArgs),
           settings: settings,
         );
       case '/sports-selection':
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => const SportsSelectionScreen(),
           settings: settings,
         );
@@ -59,7 +57,7 @@ class AppRouter {
         final selectedSports = settings.arguments is List<String>
             ? settings.arguments! as List<String>
             : const <String>[];
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => ProfileSetupScreen(selectedSports: selectedSports),
           settings: settings,
         );
@@ -67,12 +65,12 @@ class AppRouter {
         final homeArgs = settings.arguments is HomeShellArgs
             ? settings.arguments! as HomeShellArgs
             : const HomeShellArgs();
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => HomeShellScreen(args: homeArgs),
           settings: settings,
         );
       case '/chat-home':
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => const ChatHomeScreen(),
           settings: settings,
         );
@@ -82,22 +80,53 @@ class AppRouter {
             : const ChatConversationArgs(
                 conversationID: '',
                 title: 'Friend',
+                participantUserID: '',
                 subtitle: 'Conversation',
               );
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => ChatConversationScreen(args: chatArgs),
           settings: settings,
         );
-      case '/friend-scanner':
-        return MaterialPageRoute<void>(
-          builder: (_) => const FriendScannerScreen(),
-          settings: settings,
-        );
       default:
-        return MaterialPageRoute<void>(
+        return _buildRoute<void>(
           builder: (_) => const WelcomeScreen(),
           settings: settings,
         );
     }
+  }
+
+  static PageRoute<T> _buildRoute<T>({
+    required WidgetBuilder builder,
+    required RouteSettings settings,
+  }) {
+    return PageRouteBuilder<T>(
+      settings: settings,
+      transitionDuration: const Duration(milliseconds: 200),
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final fade = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        final slide = Tween<Offset>(
+          begin: const Offset(0.02, 0),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+        return FadeTransition(
+          opacity: fade,
+          child: SlideTransition(
+            position: slide,
+            child: child,
+          ),
+        );
+      },
+    );
   }
 }

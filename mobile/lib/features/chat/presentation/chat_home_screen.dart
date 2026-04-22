@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../app/router.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../friends/data/friend_search_api.dart';
+import '../../friends/data/friends_api.dart';
+import '../../friends/presentation/friend_request_profile_screen.dart';
+import '../../friends/presentation/friend_search_profile_screen.dart';
+import '../../friends/presentation/notifications_screen.dart';
 import '../data/chat_api.dart';
 import '../data/chat_constants.dart';
 import '../data/chat_realtime_client.dart';
@@ -15,42 +20,59 @@ class ChatHomeScreen extends StatefulWidget {
   const ChatHomeScreen({
     super.key,
     this.isEmbedded = false,
-    this.onOpenFriendsTab,
   });
 
   final bool isEmbedded;
-  final VoidCallback? onOpenFriendsTab;
 
   @override
   State<ChatHomeScreen> createState() => _ChatHomeScreenState();
 }
 
 class _ChatHomeScreenState extends State<ChatHomeScreen> {
+  static const int _friendsPageSize = 50;
+  static const int _notificationsPageSize = 15;
+
   final ChatApi _chatApi = ChatApi();
+  final FriendsApi _friendsApi = FriendsApi();
+  final FriendSearchApi _friendSearchApi = FriendSearchApi();
+  final TextEditingController _searchController = TextEditingController();
+
   final List<ChatConversationSummary> _conversations =
       <ChatConversationSummary>[];
+  final List<FriendSummary> _friends = <FriendSummary>[];
+  final List<FriendNotificationRecord> _notifications =
+      <FriendNotificationRecord>[];
+  final List<FriendSearchResult> _searchResults = <FriendSearchResult>[];
 
   StreamSubscription<ChatRealtimeEvent>? _realtimeSubscription;
   StreamSubscription<ChatRealtimeStatus>? _statusSubscription;
+  Timer? _searchDebounce;
 
   bool _isLoading = true;
+  bool _isSearching = false;
+  bool _isLoadingMoreNotifications = false;
   String? _errorMessage;
+  String? _searchMessage;
+  String _searchQuery = '';
+  int? _nextNotificationsPage;
 
   @override
   void initState() {
     super.initState();
-    _loadConversations();
+    _loadHomeData();
     _connectRealtime();
   }
 
   @override
   void dispose() {
+    _searchController.dispose();
     _statusSubscription?.cancel();
     _realtimeSubscription?.cancel();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadConversations() async {
+  Future<void> _loadHomeData() async {
     final token = appSession.token;
     if (token == null || token.isEmpty) {
       if (!mounted) return;
@@ -67,19 +89,38 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
     });
 
     try {
-      final conversations = await _chatApi.listConversations(token: token);
-      await chatUnreadController.refresh();
+      final results = await Future.wait<dynamic>([
+        _chatApi.listConversations(token: token),
+        _friendsApi.listFriends(token: token, page: 1, limit: _friendsPageSize),
+        _friendsApi.listNotifications(
+          token: token,
+          page: 1,
+          limit: _notificationsPageSize,
+        ),
+        chatUnreadController.refresh(),
+      ]);
 
       if (!mounted) return;
       setState(() {
         _conversations
           ..clear()
-          ..addAll(conversations);
+          ..addAll(results[0] as List<ChatConversationSummary>);
+        _friends
+          ..clear()
+          ..addAll((results[1] as FriendsPage).items);
+        _notifications
+          ..clear()
+          ..addAll((results[2] as NotificationsPage).items);
+        _nextNotificationsPage = (results[2] as NotificationsPage).nextPage;
       });
+
+      if (_searchQuery.trim().length >= 2) {
+        await _runSearch(_searchQuery);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Unable to load your conversations right now.';
+        _errorMessage = 'Unable to load your chats right now.';
       });
     } finally {
       if (mounted) {
@@ -97,19 +138,66 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
     }
 
     try {
-      final conversations = await _chatApi.listConversations(token: token);
-      await chatUnreadController.refresh();
-      if (!mounted) {
-        return;
-      }
-
+      final results = await Future.wait<dynamic>([
+        _chatApi.listConversations(token: token),
+        _friendsApi.listFriends(token: token, page: 1, limit: _friendsPageSize),
+        _friendsApi.listNotifications(
+          token: token,
+          page: 1,
+          limit: _notificationsPageSize,
+        ),
+        chatUnreadController.refresh(),
+      ]);
+      if (!mounted) return;
       setState(() {
         _conversations
           ..clear()
-          ..addAll(conversations);
+          ..addAll(results[0] as List<ChatConversationSummary>);
+        _friends
+          ..clear()
+          ..addAll((results[1] as FriendsPage).items);
+        _notifications
+          ..clear()
+          ..addAll((results[2] as NotificationsPage).items);
+        _nextNotificationsPage = (results[2] as NotificationsPage).nextPage;
       });
     } catch (_) {
       // Keep the current list if background refresh fails.
+    }
+  }
+
+  Future<void> _loadMoreNotifications() async {
+    final token = appSession.token;
+    if (token == null ||
+        token.isEmpty ||
+        _isLoadingMoreNotifications ||
+        _nextNotificationsPage == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingMoreNotifications = true;
+    });
+
+    try {
+      final page = await _friendsApi.listNotifications(
+        token: token,
+        page: _nextNotificationsPage!,
+        limit: _notificationsPageSize,
+      );
+      if (!mounted) return;
+      setState(() {
+        _notifications.addAll(page.items);
+        _nextNotificationsPage = page.nextPage;
+      });
+    } catch (_) {
+      // Keep current notifications if the next page fails.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingMoreNotifications = false;
+        });
+      }
     }
   }
 
@@ -135,232 +223,655 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
           return;
         }
 
-        if (event.event == ChatRealtimeEvents.messageCreated) {
+        if (event.event == ChatRealtimeEvents.presenceUpdated) {
+          setState(() {});
+          return;
+        }
+
+        if (event.event == ChatRealtimeEvents.messageCreated ||
+            event.event == ChatRealtimeEvents.notificationCreated) {
           _refreshConversationsSilently();
         }
       });
     } catch (_) {
-      // Conversation list still works over HTTP refresh.
+      // Realtime is optional; list data still works over HTTP.
     }
   }
 
+  Future<void> _runSearch(String rawQuery) async {
+    final token = appSession.token;
+    final query = rawQuery.trim().toLowerCase();
+
+    if (query.length < 2) {
+      if (!mounted) return;
+      setState(() {
+        _searchResults.clear();
+        _isSearching = false;
+        _searchMessage = query.isEmpty
+            ? null
+            : 'Type at least 2 characters to search usernames.';
+      });
+      return;
+    }
+
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _searchResults.clear();
+        _isSearching = false;
+        _searchMessage = 'Please sign in again to search.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _searchMessage = null;
+    });
+
+    try {
+      final results = await _friendSearchApi.searchUsers(
+        token: token,
+        query: query,
+      );
+      if (!mounted) return;
+      setState(() {
+        _searchResults
+          ..clear()
+          ..addAll(results);
+        _searchMessage =
+            results.isEmpty ? 'No people found for "$query".' : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _searchResults.clear();
+        _searchMessage = 'Unable to search right now. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSearching = false;
+        });
+      }
+    }
+  }
+
+  void _scheduleSearch(String value) {
+    setState(() {
+      _searchQuery = value;
+    });
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _runSearch(value),
+    );
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (!mounted) return;
+    setState(() {
+      _searchQuery = '';
+      _searchResults.clear();
+      _searchMessage = null;
+      _isSearching = false;
+    });
+  }
+
+  Future<void> _submitSearch(String value) async {
+    await _runSearch(value);
+    _clearSearch();
+  }
+
   Future<void> _openConversation(ChatConversationSummary conversation) async {
+    final activity = _participantActivity(conversation.otherParticipant);
+
     await Navigator.of(context).pushNamed(
       AppRoute.chatConversation.path,
       arguments: ChatConversationArgs(
         conversationID: conversation.id,
         title: conversation.otherParticipant.primaryLabel,
-        subtitle: conversation.otherParticipant.secondaryLabel,
+        participantUserID: conversation.otherParticipant.userID,
+        subtitle: activity.label,
       ),
     );
 
-    await _loadConversations();
+    await _loadHomeData();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (widget.isEmbedded) {
-      return ChatHomeContent(
-        isEmbedded: true,
-        isLoading: _isLoading,
-        errorMessage: _errorMessage,
-        conversations: _conversations,
-        onOpenFriends: widget.onOpenFriendsTab,
-        onOpenConversation: _openConversation,
-        onRefresh: _loadConversations,
-      );
+  Future<void> _openOrCreateConversation({
+    required String userID,
+    required String title,
+    required String subtitle,
+  }) async {
+    final existing = _conversationByUserID[userID];
+    if (existing != null) {
+      await _openConversation(existing);
+      return;
     }
 
-    return ChatHomeContent(
-      isLoading: _isLoading,
-      errorMessage: _errorMessage,
-      conversations: _conversations,
-      onOpenConversation: _openConversation,
-      onRefresh: _loadConversations,
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    try {
+      final conversation = await _chatApi.createConversation(
+        token: token,
+        request: CreateConversationRequest(
+          participantIDs: [userID],
+        ),
+      );
+      await chatUnreadController.refresh();
+      if (!mounted) return;
+
+      await Navigator.of(context).pushNamed(
+        AppRoute.chatConversation.path,
+        arguments: ChatConversationArgs(
+          conversationID: conversation.id,
+          title: title,
+          participantUserID: userID,
+          subtitle: subtitle,
+        ),
+      );
+
+      await _loadHomeData();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('HttpException: ', '')),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NotificationsScreen(
+          notifications: _notifications,
+          isLoading: _isLoading,
+          isLoadingMore: _isLoadingMoreNotifications,
+          hasMore: _nextNotificationsPage != null,
+          message: _errorMessage,
+          onOpenNotification: _openNotification,
+          onLoadMore: _loadMoreNotifications,
+        ),
+      ),
+    );
+    await _refreshConversationsSilently();
+  }
+
+  Future<void> _openNotification(FriendNotificationRecord notification) async {
+    final request = notification.friendRequest;
+    if (request == null || !notification.isPendingIncomingRequest) {
+      return;
+    }
+    final navigator = Navigator.of(context);
+
+    await _markNotificationAsRead(notification.id);
+    final isIncomingRequest = notification.type == 'friend_request_received';
+    final peer = isIncomingRequest ? request.requester : request.addressee;
+    final isAlreadyFriend =
+        _friends.any((friend) => friend.userID == peer.userID);
+    final showChatButton = isAlreadyFriend ||
+        notification.isAcceptedRequest ||
+        request.status == 'accepted';
+
+    await navigator.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => FriendRequestProfileScreen(
+          request: request,
+          title: peer.displayName.trim().isEmpty
+              ? peer.username
+              : peer.displayName.trim(),
+          isIncomingRequest: isIncomingRequest,
+          showChatButton: showChatButton,
+          onAcceptRequest: () => _respondToRequest(notification, 'accept'),
+          onDeclineRequest: () => _respondToRequest(notification, 'decline'),
+          onOpenChat: () => _openOrCreateConversation(
+            userID: peer.userID,
+            title: peer.displayName.trim().isEmpty
+                ? peer.username
+                : peer.displayName.trim(),
+            subtitle:
+                peer.city.trim().isEmpty ? '@${peer.username}' : peer.city,
+          ),
+        ),
+      ),
     );
   }
-}
 
-class ChatHomeContent extends StatelessWidget {
-  const ChatHomeContent({
-    super.key,
-    required this.isLoading,
-    required this.errorMessage,
-    required this.conversations,
-    required this.onOpenConversation,
-    required this.onRefresh,
-    this.isEmbedded = false,
-    this.onOpenFriends,
-  });
+  Future<bool> _respondToRequest(
+    FriendNotificationRecord notification,
+    String action,
+  ) async {
+    final token = appSession.token;
+    final request = notification.friendRequest;
+    if (token == null || token.isEmpty || request == null) {
+      return false;
+    }
+    final messenger = ScaffoldMessenger.of(context);
 
-  final bool isLoading;
-  final String? errorMessage;
-  final List<ChatConversationSummary> conversations;
-  final bool isEmbedded;
-  final VoidCallback? onOpenFriends;
-  final ValueChanged<ChatConversationSummary> onOpenConversation;
-  final Future<void> Function() onRefresh;
+    try {
+      await _friendsApi.respondToRequest(
+        token: token,
+        requestID: request.id,
+        action: action,
+      );
+      await _loadHomeData();
+      if (!mounted) return false;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            action == 'accept'
+                ? 'You are now connected with @${request.requester.username}.'
+                : 'Friend request declined.',
+          ),
+        ),
+      );
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('HttpException: ', '')),
+        ),
+      );
+      return false;
+    }
+  }
+
+  Future<void> _markNotificationAsRead(String notificationID) async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    try {
+      await _friendsApi.markNotificationRead(
+        token: token,
+        notificationID: notificationID,
+      );
+      if (!mounted) return;
+      setState(() {
+        for (var index = 0; index < _notifications.length; index++) {
+          final current = _notifications[index];
+          if (current.id == notificationID && current.readAt == null) {
+            _notifications[index] = current.copyWith(readAt: now);
+            break;
+          }
+        }
+      });
+    } catch (_) {
+      // Keep the current list state if the read update fails.
+    }
+  }
+
+  Future<void> _openSearchResult(FriendSearchResult result) async {
+    if (result.connectionStatus == FriendConnectionStatus.friends) {
+      await _openOrCreateConversation(
+        userID: result.userID,
+        title: result.displayName.trim().isEmpty
+            ? result.username
+            : result.displayName.trim(),
+        subtitle:
+            result.city.trim().isEmpty ? '@${result.username}' : result.city,
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FriendSearchProfileScreen(result: result),
+      ),
+    );
+    await _loadHomeData();
+  }
+
+  Map<String, ChatConversationSummary> get _conversationByUserID {
+    return {
+      for (final conversation in _conversations)
+        conversation.otherParticipant.userID: conversation,
+    };
+  }
+
+  List<_FriendListItem> get _friendItems {
+    final conversationByUserID = _conversationByUserID;
+    final items = _friends
+        .map(
+          (friend) => _FriendListItem(
+            friend: friend,
+            conversation: conversationByUserID[friend.userID],
+          ),
+        )
+        .toList();
+
+    items.sort((a, b) {
+      final aTime = a.conversation?.lastMessageAt ?? a.conversation?.createdAt;
+      final bTime = b.conversation?.lastMessageAt ?? b.conversation?.createdAt;
+      if (aTime != null && bTime != null) {
+        return bTime.compareTo(aTime);
+      }
+      if (aTime != null) return -1;
+      if (bTime != null) return 1;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+
+    return items;
+  }
+
+  int get _unreadNotificationCount => _notifications
+      .where((notification) => notification.readAt == null)
+      .length;
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final body = Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.md,
-            AppSpacing.lg,
-            AppSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Your chats',
-                      style: textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Recent conversations, unread messages, and live replies.',
-                      style: textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: () {
-                  if (isEmbedded) {
-                    onOpenFriends?.call();
-                    return;
-                  }
-
-                  Navigator.of(context).pushNamed(
-                    AppRoute.friendScanner.path,
-                  );
-                },
-                icon: const Icon(Icons.group_add_rounded),
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.surface,
-                  foregroundColor: AppColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: onRefresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                AppSpacing.md,
-                AppSpacing.lg,
-                AppSpacing.lg,
-              ),
-              children: [
-                if (isLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(
-                      vertical: AppSpacing.xl,
-                    ),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                else if (errorMessage != null)
-                  Text(
-                    errorMessage!,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: AppColors.error,
-                    ),
-                  )
-                else if (conversations.isEmpty)
-                  _EmptyChatsCard(
-                    onOpenFriends: () {
-                      if (isEmbedded) {
-                        onOpenFriends?.call();
-                        return;
-                      }
-
-                      Navigator.of(context).pushNamed(
-                        AppRoute.friendScanner.path,
-                      );
-                    },
-                  )
-                else
-                  ...conversations.expand((conversation) => [
-                        _ChatTile(
-                          conversation: conversation,
-                          onTap: () => onOpenConversation(conversation),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                      ]),
-              ],
-            ),
-          ),
-        ),
-      ],
+    final searchActive = _searchQuery.trim().isNotEmpty;
+    final body = _UnifiedInboxContent(
+      isEmbedded: widget.isEmbedded,
+      isLoading: _isLoading,
+      isSearching: _isSearching,
+      errorMessage: _errorMessage,
+      searchMessage: _searchMessage,
+      unreadNotificationCount: _unreadNotificationCount,
+      searchController: _searchController,
+      searchQuery: _searchQuery,
+      searchResults: _searchResults,
+      friendItems: _friendItems,
+      onOpenNotifications: _openNotifications,
+      onRefresh: _loadHomeData,
+      onSearchChanged: _scheduleSearch,
+      onSearchSubmitted: _submitSearch,
+      onOpenConversation: (item) => _openOrCreateConversation(
+        userID: item.friend.userID,
+        title: item.title,
+        subtitle: item.subtitle,
+      ),
+      onOpenSearchResult: (result) async {
+        await _openSearchResult(result);
+        _clearSearch();
+      },
+      searchActive: searchActive,
     );
 
-    if (isEmbedded) {
-      return SafeArea(child: body);
+    if (widget.isEmbedded) {
+      return body;
     }
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(child: body),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: onOpenFriends ??
-            () {
-              Navigator.of(context).pushNamed(AppRoute.friendScanner.path);
-            },
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.chat_rounded),
-        label: const Text('New chat'),
+      body: body,
+    );
+  }
+}
+
+class _UnifiedInboxContent extends StatelessWidget {
+  const _UnifiedInboxContent({
+    required this.isLoading,
+    required this.isSearching,
+    required this.errorMessage,
+    required this.searchMessage,
+    required this.unreadNotificationCount,
+    required this.searchController,
+    required this.searchQuery,
+    required this.searchResults,
+    required this.friendItems,
+    required this.onOpenNotifications,
+    required this.onRefresh,
+    required this.onSearchChanged,
+    required this.onSearchSubmitted,
+    required this.onOpenConversation,
+    required this.onOpenSearchResult,
+    required this.searchActive,
+    this.isEmbedded = false,
+  });
+
+  final bool isEmbedded;
+  final bool isLoading;
+  final bool isSearching;
+  final bool searchActive;
+  final String? errorMessage;
+  final String? searchMessage;
+  final int unreadNotificationCount;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final List<FriendSearchResult> searchResults;
+  final List<_FriendListItem> friendItems;
+  final VoidCallback onOpenNotifications;
+  final Future<void> Function() onRefresh;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<String> onSearchSubmitted;
+  final ValueChanged<_FriendListItem> onOpenConversation;
+  final ValueChanged<FriendSearchResult> onOpenSearchResult;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final content = RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.xl,
+        ),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Chats',
+                  style: textTheme.headlineMedium?.copyWith(
+                    fontSize: 34,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+              ),
+              _NotificationButton(
+                unreadCount: unreadNotificationCount,
+                onTap: onOpenNotifications,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          TextField(
+            controller: searchController,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search friends or usernames',
+              prefixIcon: const Icon(Icons.search_rounded),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: 14,
+              ),
+              fillColor: AppColors.surfaceSoft,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: BorderSide(
+                  color: AppColors.border.withValues(alpha: 0.45),
+                  width: 0.8,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(20),
+                borderSide: const BorderSide(
+                  color: AppColors.borderFocus,
+                  width: 1.2,
+                ),
+              ),
+            ),
+            onChanged: onSearchChanged,
+            onSubmitted: onSearchSubmitted,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          if (searchActive) ...[
+            Row(
+              children: [
+                const Spacer(),
+                Text(
+                  isSearching
+                      ? 'Searching...'
+                      : '${searchResults.length} results',
+                  style: textTheme.bodyMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (errorMessage != null && !searchActive)
+            _InboxMessageCard(
+              title: 'Unable to load chats',
+              message: errorMessage!,
+            )
+          else if (searchActive)
+            _buildSearchState(context)
+          else if (friendItems.isEmpty)
+            const _InboxMessageCard(
+              title: 'No friends yet',
+              message:
+                  'Search by username to add someone, then your connected friends will appear here.',
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < friendItems.length; index++) ...[
+                  _FriendConversationTile(
+                    item: friendItems[index],
+                    onTap: () => onOpenConversation(friendItems[index]),
+                  ),
+                  if (index != friendItems.length - 1)
+                    const SizedBox(height: 10),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+
+    if (isEmbedded) {
+      return SafeArea(child: content);
+    }
+
+    return SafeArea(child: content);
+  }
+
+  Widget _buildSearchState(BuildContext context) {
+    if (isSearching) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (searchMessage != null) {
+      return _InboxMessageCard(
+        title: 'Search',
+        message: searchMessage!,
+      );
+    }
+
+    if (searchResults.isEmpty) {
+      return _InboxMessageCard(
+        title: 'Search',
+        message: searchQuery.trim().length < 2
+            ? 'Type at least 2 characters to search usernames.'
+            : 'No results yet.',
+      );
+    }
+
+    return Column(
+      children: [
+        for (var index = 0; index < searchResults.length; index++) ...[
+          _SearchResultTile(
+            result: searchResults[index],
+            onTap: () => onOpenSearchResult(searchResults[index]),
+          ),
+          if (index != searchResults.length - 1)
+            const SizedBox(height: AppSpacing.sm),
+        ],
+      ],
+    );
+  }
+}
+
+class _NotificationButton extends StatelessWidget {
+  const _NotificationButton({
+    required this.unreadCount,
+    required this.onTap,
+  });
+
+  final int unreadCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Badge(
+        isLabelVisible: unreadCount > 0,
+        label: Text(unreadCount > 9 ? '9+' : '$unreadCount'),
+        child: const Icon(Icons.notifications_none_rounded),
+      ),
+      style: IconButton.styleFrom(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
+        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        side: BorderSide(
+          color: AppColors.border.withValues(alpha: 0.45),
+          width: 0.8,
+        ),
       ),
     );
   }
 }
 
-class _EmptyChatsCard extends StatelessWidget {
-  const _EmptyChatsCard({
-    required this.onOpenFriends,
+class _InboxMessageCard extends StatelessWidget {
+  const _InboxMessageCard({
+    required this.title,
+    required this.message,
   });
 
-  final VoidCallback onOpenFriends;
+  final String title;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
         color: AppColors.surface,
+        borderRadius: BorderRadius.circular(28),
         border: Border.all(color: AppColors.border),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'No chats yet',
+            title,
             style: textTheme.titleLarge,
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Start a conversation from your accepted friends and it will show up here with unread tracking.',
+            message,
             style: textTheme.bodyMedium,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          FilledButton(
-            onPressed: onOpenFriends,
-            child: const Text('Find friends'),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
@@ -368,149 +879,112 @@ class _EmptyChatsCard extends StatelessWidget {
   }
 }
 
-class _ChatTile extends StatelessWidget {
-  const _ChatTile({
-    required this.conversation,
+class _FriendConversationTile extends StatelessWidget {
+  const _FriendConversationTile({
+    required this.item,
     required this.onTap,
   });
 
-  final ChatConversationSummary conversation;
+  final _FriendListItem item;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final participant = conversation.otherParticipant;
-    final unreadCount = conversation.unreadCount;
+    final conversation = item.conversation;
+    final unreadCount = conversation?.unreadCount ?? 0;
     final hasUnread = unreadCount > 0;
+    final trailingTime = _formatTimestamp(
+        conversation?.lastMessageAt ?? conversation?.createdAt);
+    final preview = conversation == null
+        ? item.subtitle
+        : _messagePreview(conversation.lastMessageBody);
 
     return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.lg),
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: hasUnread ? AppColors.primarySoft : AppColors.surface,
-          border: Border.all(
-            color: hasUnread ? AppColors.primary : AppColors.border,
-            width: hasUnread ? 1.4 : 1,
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          boxShadow: hasUnread
-              ? const [
-                  BoxShadow(
-                    color: Color(0x12000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ]
-              : null,
+      borderRadius: BorderRadius.circular(22),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: 12,
         ),
         child: Row(
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: hasUnread
-                    ? AppColors.primary.withValues(alpha: 0.16)
-                    : AppColors.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Icon(
-                Icons.person_rounded,
-                color: hasUnread ? AppColors.primary : AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
+            _AvatarBadge(seed: item.title),
+            const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
-                          participant.primaryLabel,
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight:
-                                hasUnread ? FontWeight.w800 : FontWeight.w600,
+                          item.title,
+                          style: textTheme.titleLarge?.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Text(
-                        _formatTimestamp(
-                          conversation.lastMessageAt ?? conversation.createdAt,
+                      if (trailingTime.isNotEmpty)
+                        Text(
+                          trailingTime,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: AppColors.textTertiary,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: hasUnread
-                              ? AppColors.primary
-                              : AppColors.textSecondary,
-                          fontWeight:
-                              hasUnread ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    _buildPreviewText(conversation),
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: hasUnread
-                          ? AppColors.textPrimary
-                          : AppColors.textSecondary,
-                      fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 2),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                          vertical: AppSpacing.xs,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(
-                            alpha: hasUnread ? 0.85 : 0.6,
-                          ),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: hasUnread
-                                ? AppColors.primaryLight
-                                : AppColors.border,
-                          ),
-                        ),
+                      Expanded(
                         child: Text(
-                          '@${participant.username}',
-                          style: textTheme.bodyMedium?.copyWith(
+                          preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodyLarge?.copyWith(
                             color: hasUnread
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
+                                ? AppColors.textSecondary
+                                : AppColors.textSecondary.withValues(
+                                    alpha: 0.96,
+                                  ),
                             fontWeight:
-                                hasUnread ? FontWeight.w700 : FontWeight.w500,
+                                hasUnread ? FontWeight.w500 : FontWeight.w400,
                           ),
                         ),
                       ),
-                      const Spacer(),
                       if (hasUnread)
                         Container(
+                          margin: const EdgeInsets.only(left: AppSpacing.sm),
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.sm,
-                            vertical: AppSpacing.xs,
+                            horizontal: 7,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.primary,
                             borderRadius: BorderRadius.circular(999),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: AppColors.primaryGlow,
+                                blurRadius: 6,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
                           ),
+                          alignment: Alignment.center,
                           child: Text(
                             unreadCount > 99 ? '99+' : '$unreadCount',
-                            style: textTheme.bodyMedium?.copyWith(
+                            style: textTheme.bodySmall?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
                             ),
@@ -526,36 +1000,215 @@ class _ChatTile extends StatelessWidget {
       ),
     );
   }
+}
 
-  static String _buildPreviewText(ChatConversationSummary conversation) {
-    final preview = conversation.lastMessageBody.trim();
-    if (preview.isEmpty) {
-      return conversation.otherParticipant.secondaryLabel;
-    }
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.result,
+    required this.onTap,
+  });
 
-    if (conversation.lastMessageSenderID == appSession.userID) {
-      return 'You: $preview';
-    }
+  final FriendSearchResult result;
+  final VoidCallback onTap;
 
-    return preview;
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final title = result.displayName.trim().isEmpty
+        ? result.username
+        : result.displayName.trim();
+    final subtitle =
+        result.city.trim().isEmpty ? '@${result.username}' : result.city.trim();
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              _AvatarBadge(seed: title),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      subtitle,
+                      style: textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                _searchActionLabel(result.connectionStatus),
+                style: textTheme.bodyMedium?.copyWith(
+                  color:
+                      result.connectionStatus == FriendConnectionStatus.friends
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarBadge extends StatelessWidget {
+  const _AvatarBadge({
+    required this.seed,
+  });
+
+  final String seed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = <Color>[
+      const Color(0xFFE8EAFE),
+      const Color(0xFFFFE8DF),
+      const Color(0xFFE5F2FF),
+      const Color(0xFFE8F5EC),
+    ];
+    final accents = <Color>[
+      AppColors.primary,
+      AppColors.accentStrong,
+      const Color(0xFF2383E2),
+      const Color(0xFF2CA56D),
+    ];
+    final index = seed.hashCode.abs() % palette.length;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: palette[index],
+        borderRadius: BorderRadius.circular(18),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        seed.trim().isEmpty ? '?' : seed.trim().characters.first.toUpperCase(),
+        style: textTheme.titleLarge?.copyWith(
+          color: accents[index],
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _FriendListItem {
+  const _FriendListItem({
+    required this.friend,
+    required this.conversation,
+  });
+
+  final FriendSummary friend;
+  final ChatConversationSummary? conversation;
+
+  String get title =>
+      friend.displayName.trim().isEmpty ? friend.username : friend.displayName;
+
+  String get subtitle =>
+      friend.city.trim().isEmpty ? '@${friend.username}' : friend.city.trim();
+}
+
+class _ConversationActivity {
+  const _ConversationActivity({
+    required this.label,
+  });
+
+  final String label;
+}
+
+_ConversationActivity _participantActivity(ChatParticipant participant) {
+  if (ChatRealtimeClient.instance.isUserOnline(participant.userID) ||
+      participant.isOnline) {
+    return const _ConversationActivity(
+      label: 'Online',
+    );
   }
 
-  static String _formatTimestamp(DateTime? value) {
-    if (value == null) {
-      return '';
-    }
+  return const _ConversationActivity(
+    label: 'Offline',
+  );
+}
 
-    final now = DateTime.now();
-    final date = value.toLocal();
-    if (now.year == date.year &&
-        now.month == date.month &&
-        now.day == date.day) {
-      final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
-      final minute = date.minute.toString().padLeft(2, '0');
-      final period = date.hour >= 12 ? 'PM' : 'AM';
-      return '$hour:$minute $period';
-    }
-
-    return '${date.month}/${date.day}';
+String _searchActionLabel(String status) {
+  switch (status) {
+    case FriendConnectionStatus.friends:
+      return 'Chat';
+    case FriendConnectionStatus.requested:
+      return 'Requested';
+    case FriendConnectionStatus.incomingRequest:
+      return 'Respond';
+    default:
+      return 'Add';
   }
+}
+
+String _messagePreview(String body) {
+  if (body == ChatSystemMessageBodies.connection) {
+    return 'You are now connected.';
+  }
+
+  return body.trim().isEmpty ? 'Start chatting' : body;
+}
+
+String _formatTimestamp(DateTime? value) {
+  if (value == null) {
+    return '';
+  }
+
+  final now = DateTime.now();
+  final date = value.toLocal();
+  if (now.year == date.year && now.month == date.month && now.day == date.day) {
+    final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+    final minute = date.minute.toString().padLeft(2, '0');
+    final period = date.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
+  if (now.difference(date).inDays == 1) {
+    return 'Yesterday';
+  }
+
+  if (now.difference(date).inDays < 7) {
+    const weekdays = <String>[
+      'Mon',
+      'Tue',
+      'Wed',
+      'Thu',
+      'Fri',
+      'Sat',
+      'Sun',
+    ];
+    return weekdays[date.weekday - 1];
+  }
+
+  return '${date.month}/${date.day}';
 }

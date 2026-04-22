@@ -20,7 +20,15 @@ import (
 func TestSignUpLoginAndChatFlow(t *testing.T) {
 	userRepo := newUserRepositoryStub()
 	chatRepo := newChatRepositoryStub()
-	userService := userapp.NewService(userRepo, auth.PasswordHasher{}, auth.NewTokenManager("test-secret"), storage.NewService("https://cdn.test"))
+	userService := userapp.NewService(
+		userRepo,
+		auth.PasswordHasher{},
+		auth.NewTokenManager("test-secret"),
+		storage.NewService("https://cdn.test"),
+		messaging.NoopPublisher{},
+		nil,
+		nil,
+	)
 	chatService := chatapp.NewService(chatRepo, userRepo, messaging.NoopPublisher{}, nil)
 
 	ctx := context.Background()
@@ -74,12 +82,15 @@ func TestSignUpLoginAndChatFlow(t *testing.T) {
 		t.Fatalf("accept friend request: %v", err)
 	}
 
-	friends, err := userService.ListFriends(ctx, alice.User.ID)
+	friends, err := userService.ListFriends(ctx, alice.User.ID, userapp.ListFriendsInput{
+		Page:  1,
+		Limit: 15,
+	})
 	if err != nil {
 		t.Fatalf("list friends: %v", err)
 	}
 
-	if len(friends) != 1 || friends[0].UserID != bob.User.ID {
+	if len(friends.Items) != 1 || friends.Items[0].UserID != bob.User.ID {
 		t.Fatalf("expected bob as accepted friend, got %#v", friends)
 	}
 
@@ -248,7 +259,7 @@ func (r *userRepositoryStub) UpdateFriendRequestStatus(_ context.Context, reques
 
 	friendship.Status = status
 	friendship.UpdatedAt = updatedAt
-	friendship.SeenAt = &updatedAt
+	friendship.SeenAt = nil
 	friendship.Requester = r.userCard(friendship.RequesterID)
 	friendship.Addressee = r.userCard(friendship.AddresseeID)
 	r.friendships[requestID] = friendship
@@ -268,7 +279,7 @@ func (r *userRepositoryStub) MarkIncomingFriendRequestsSeen(_ context.Context, u
 	return nil
 }
 
-func (r *userRepositoryStub) ListFriends(_ context.Context, userID string) ([]userdomain.UserCard, error) {
+func (r *userRepositoryStub) ListFriends(_ context.Context, userID string, offset, limit int) ([]userdomain.UserCard, error) {
 	friends := make([]userdomain.UserCard, 0)
 	for _, friendship := range r.friendships {
 		if friendship.Status != userdomain.FriendRequestStatusAccepted {
@@ -280,7 +291,16 @@ func (r *userRepositoryStub) ListFriends(_ context.Context, userID string) ([]us
 			friends = append(friends, r.userCard(friendship.RequesterID))
 		}
 	}
-	return friends, nil
+	if offset >= len(friends) {
+		return []userdomain.UserCard{}, nil
+	}
+
+	end := offset + limit
+	if end > len(friends) {
+		end = len(friends)
+	}
+
+	return friends[offset:end], nil
 }
 
 func (r *userRepositoryStub) userCard(userID string) userdomain.UserCard {

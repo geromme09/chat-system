@@ -10,6 +10,10 @@ const (
 	FriendRequestStatusAccepted = "accepted"
 	FriendRequestStatusDeclined = "declined"
 
+	EventFriendRequestCreated   = "user.friend_request.created"
+	EventFriendRequestResponded = "user.friend_request.responded"
+	EventPayloadFriendRequest   = "friend_request"
+
 	ConnectionStatusAdd             = "add"
 	ConnectionStatusRequested       = "requested"
 	ConnectionStatusIncomingRequest = "incoming_request"
@@ -70,6 +74,13 @@ type UserCard struct {
 	City        string `json:"city"`
 }
 
+type FriendsPage struct {
+	Items    []UserCard `json:"items"`
+	Page     int        `json:"page"`
+	Limit    int        `json:"limit"`
+	NextPage *int       `json:"next_page,omitempty"`
+}
+
 type Repository interface {
 	CreateUser(ctx context.Context, user User) error
 	FindUserByEmail(ctx context.Context, email string) (User, error)
@@ -83,5 +94,5 @@ type Repository interface {
 	ListIncomingFriendRequests(ctx context.Context, userID string) ([]FriendRequest, error)
 	UpdateFriendRequestStatus(ctx context.Context, requestID, addresseeUserID, status string, updatedAt time.Time) (FriendRequest, error)
 	MarkIncomingFriendRequestsSeen(ctx context.Context, userID string, seenAt time.Time) error
-	ListFriends(ctx context.Context, userID string) ([]UserCard, error)
+	ListFriends(ctx context.Context, userID string, offset, limit int) ([]UserCard, error)
 }

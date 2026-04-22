@@ -18,12 +18,16 @@ class ChatRealtimeEvent {
     required this.event,
     required this.conversationID,
     required this.userID,
+    required this.isOnline,
+    required this.notification,
     this.message,
   });
 
   final String event;
   final String conversationID;
   final String userID;
+  final bool isOnline;
+  final Map<String, dynamic>? notification;
   final ChatMessage? message;
 
   factory ChatRealtimeEvent.fromJson(Map<String, dynamic> json) {
@@ -31,6 +35,9 @@ class ChatRealtimeEvent {
       event: json[ChatRealtimeFields.event] as String? ?? '',
       conversationID: json[ChatRealtimeFields.conversationID] as String? ?? '',
       userID: json[ChatRealtimeFields.userID] as String? ?? '',
+      isOnline: json[ChatRealtimeFields.isOnline] as bool? ?? false,
+      notification:
+          json[ChatRealtimeFields.notification] as Map<String, dynamic>?,
       message: (json[ChatRealtimeFields.message] as Map<String, dynamic>?)
           ?.let(ChatMessage.fromJson),
     );
@@ -59,12 +66,20 @@ class ChatRealtimeClient {
   bool _isConnecting = false;
   Duration _nextReconnectDelay = _initialReconnectDelay;
   ChatRealtimeStatus _status = ChatRealtimeStatus.disconnected;
+  final Set<String> _onlineUserIDs = <String>{};
 
   Stream<ChatRealtimeEvent> get events => _eventsController.stream;
   Stream<ChatRealtimeStatus> get statuses => _statusController.stream;
 
   bool get isConnected => _status == ChatRealtimeStatus.connected;
   ChatRealtimeStatus get status => _status;
+
+  bool isUserOnline(String userID) {
+    if (userID.trim().isEmpty) {
+      return false;
+    }
+    return _onlineUserIDs.contains(userID);
+  }
 
   Future<void> connect(String token) async {
     _activeToken = token;
@@ -83,6 +98,7 @@ class ChatRealtimeClient {
     _isManualDisconnect = true;
     _cancelReconnect();
     await _disposeSocket();
+    _onlineUserIDs.clear();
     _setStatus(ChatRealtimeStatus.disconnected);
   }
 
@@ -172,12 +188,23 @@ class ChatRealtimeClient {
       return;
     }
 
-    _eventsController.add(ChatRealtimeEvent.fromJson(decoded));
+    final realtimeEvent = ChatRealtimeEvent.fromJson(decoded);
+    if (realtimeEvent.event == ChatRealtimeEvents.presenceUpdated &&
+        realtimeEvent.userID.trim().isNotEmpty) {
+      if (realtimeEvent.isOnline) {
+        _onlineUserIDs.add(realtimeEvent.userID);
+      } else {
+        _onlineUserIDs.remove(realtimeEvent.userID);
+      }
+    }
+
+    _eventsController.add(realtimeEvent);
   }
 
   void _handleSocketClosed() {
     _socket = null;
     _socketSubscription = null;
+    _onlineUserIDs.clear();
 
     if (_isManualDisconnect) {
       _setStatus(ChatRealtimeStatus.disconnected);

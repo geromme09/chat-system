@@ -10,13 +10,15 @@ import (
 const (
 	AggregateConversation = "conversation"
 
-	EventMessageCreated = "chat.message.created"
-	EventTypingStarted  = "chat.typing.started"
-	EventTypingStopped  = "chat.typing.stopped"
-	EventPayloadMessage = "message"
+	EventMessageCreated  = "chat.message.created"
+	EventTypingStarted   = "chat.typing.started"
+	EventTypingStopped   = "chat.typing.stopped"
+	EventPresenceUpdated = "chat.presence.updated"
+	EventPayloadMessage  = "message"
 
 	DirectConversationParticipantCount = 2
 	MaxMessageBodyLength               = 2000
+	SystemConnectionMessageBody        = "__system_connected__"
 )
 
 type Conversation struct {
@@ -36,6 +38,7 @@ type UserCard struct {
 	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`
 	City        string `json:"city"`
+	IsOnline    bool   `json:"is_online"`
 }
 
 type Message struct {

@@ -22,6 +22,7 @@ type UserLookup interface {
 
 type RealtimeNotifier interface {
 	NotifyMessageCreated(ctx context.Context, conversation domain.Conversation, message domain.Message) error
+	IsUserOnline(userID string) bool
 }
 
 type CreateConversationInput struct {
@@ -105,8 +106,62 @@ func (s *Service) CreateConversation(ctx context.Context, actorUserID string, in
 	return s.repo.GetConversation(ctx, conversation.ID)
 }
 
+func (s *Service) EnsureFriendConnection(ctx context.Context, requesterUserID, addresseeUserID string) error {
+	conversation, err := s.CreateConversation(ctx, requesterUserID, CreateConversationInput{
+		ParticipantIDs: []string{addresseeUserID},
+	})
+	if err != nil {
+		return err
+	}
+
+	messages, err := s.repo.ListMessages(ctx, conversation.ID, requesterUserID)
+	if err != nil {
+		return err
+	}
+	if len(messages) > 0 {
+		return nil
+	}
+
+	message := domain.Message{
+		ID:             s.idSource("msg"),
+		ConversationID: conversation.ID,
+		SenderUserID:   addresseeUserID,
+		Body:           domain.SystemConnectionMessageBody,
+		CreatedAt:      s.timeSource(),
+	}
+	if err := s.repo.CreateMessage(ctx, message); err != nil {
+		return err
+	}
+
+	_ = s.publisher.Publish(ctx, messaging.Event{
+		Name:        domain.EventMessageCreated,
+		Version:     1,
+		Aggregate:   domain.AggregateConversation,
+		AggregateID: conversation.ID,
+		Payload: map[string]any{
+			domain.EventPayloadMessage: message,
+		},
+	})
+
+	if s.notifier != nil {
+		_ = s.notifier.NotifyMessageCreated(ctx, conversation, message)
+	}
+
+	return nil
+}
+
 func (s *Service) ListConversations(ctx context.Context, actorUserID string) ([]domain.Conversation, error) {
-	return s.repo.ListConversations(ctx, actorUserID)
+	conversations, err := s.repo.ListConversations(ctx, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	for index := range conversations {
+		conversations[index].OtherParticipant.IsOnline = s.notifier != nil &&
+			s.notifier.IsUserOnline(conversations[index].OtherParticipant.UserID)
+	}
+
+	return conversations, nil
 }
 
 func (s *Service) ListMessages(ctx context.Context, actorUserID, conversationID string) ([]domain.Message, error) {

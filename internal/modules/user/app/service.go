@@ -10,6 +10,7 @@ import (
 	"github.com/geromme09/chat-system/internal/modules/user/domain"
 	"github.com/geromme09/chat-system/internal/platform/auth"
 	"github.com/geromme09/chat-system/internal/platform/identity"
+	"github.com/geromme09/chat-system/internal/platform/messaging"
 	"github.com/geromme09/chat-system/internal/platform/storage"
 	"github.com/geromme09/chat-system/internal/platform/validate"
 )
@@ -61,21 +62,41 @@ type SendFriendRequestInput struct {
 	TargetUserID string `json:"target_user_id"`
 }
 
+type ListFriendsInput struct {
+	Page  int
+	Limit int
+}
+
+type FriendRequestNotifier interface {
+	NotifyFriendRequestCreated(ctx context.Context, friendRequest domain.FriendRequest) error
+	NotifyFriendRequestResponded(ctx context.Context, friendRequest domain.FriendRequest) error
+}
+
+type FriendConnectionMessenger interface {
+	EnsureFriendConnection(ctx context.Context, requesterUserID, addresseeUserID string) error
+}
+
 type Service struct {
 	repo       domain.Repository
 	hasher     auth.PasswordHasher
 	tokens     auth.TokenManager
 	storage    storage.Service
+	publisher  messaging.Publisher
+	notifier   FriendRequestNotifier
+	messenger  FriendConnectionMessenger
 	timeSource func() time.Time
 	idSource   func() string
 }
 
-func NewService(repo domain.Repository, hasher auth.PasswordHasher, tokens auth.TokenManager, storage storage.Service) *Service {
+func NewService(repo domain.Repository, hasher auth.PasswordHasher, tokens auth.TokenManager, storage storage.Service, publisher messaging.Publisher, notifier FriendRequestNotifier, messenger FriendConnectionMessenger) *Service {
 	return &Service{
-		repo:    repo,
-		hasher:  hasher,
-		tokens:  tokens,
-		storage: storage,
+		repo:      repo,
+		hasher:    hasher,
+		tokens:    tokens,
+		storage:   storage,
+		publisher: publisher,
+		notifier:  notifier,
+		messenger: messenger,
 		timeSource: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -225,14 +246,28 @@ func (s *Service) SendFriendRequest(ctx context.Context, actorUserID string, inp
 		return domain.FriendRequest{}, err
 	}
 
-	return s.repo.GetFriendshipBetween(ctx, actorUserID, targetUserID)
+	created, err := s.repo.GetFriendshipBetween(ctx, actorUserID, targetUserID)
+	if err != nil {
+		return domain.FriendRequest{}, err
+	}
+
+	_ = s.publisher.Publish(ctx, messaging.Event{
+		Name:        domain.EventFriendRequestCreated,
+		Version:     1,
+		Aggregate:   "friend_request",
+		AggregateID: created.ID,
+		Payload: map[string]any{
+			domain.EventPayloadFriendRequest: created,
+		},
+	})
+	if s.notifier != nil {
+		_ = s.notifier.NotifyFriendRequestCreated(ctx, created)
+	}
+
+	return created, nil
 }
 
 func (s *Service) ListIncomingFriendRequests(ctx context.Context, actorUserID string) ([]domain.FriendRequest, error) {
-	if err := s.repo.MarkIncomingFriendRequestsSeen(ctx, actorUserID, s.timeSource()); err != nil {
-		return nil, err
-	}
-
 	return s.repo.ListIncomingFriendRequests(ctx, actorUserID)
 }
 
@@ -243,11 +278,66 @@ func (s *Service) RespondToFriendRequest(ctx context.Context, actorUserID, reque
 		return domain.FriendRequest{}, errors.New("invalid friend request status")
 	}
 
-	return s.repo.UpdateFriendRequestStatus(ctx, requestID, actorUserID, status, s.timeSource())
+	friendRequest, err := s.repo.UpdateFriendRequestStatus(ctx, requestID, actorUserID, status, s.timeSource())
+	if err != nil {
+		return domain.FriendRequest{}, err
+	}
+
+	_ = s.publisher.Publish(ctx, messaging.Event{
+		Name:        domain.EventFriendRequestResponded,
+		Version:     1,
+		Aggregate:   "friend_request",
+		AggregateID: friendRequest.ID,
+		Payload: map[string]any{
+			domain.EventPayloadFriendRequest: friendRequest,
+		},
+	})
+	if s.notifier != nil {
+		_ = s.notifier.NotifyFriendRequestResponded(ctx, friendRequest)
+	}
+	if status == domain.FriendRequestStatusAccepted && s.messenger != nil {
+		_ = s.messenger.EnsureFriendConnection(
+			ctx,
+			friendRequest.RequesterID,
+			friendRequest.AddresseeID,
+		)
+	}
+
+	return friendRequest, nil
 }
 
-func (s *Service) ListFriends(ctx context.Context, actorUserID string) ([]domain.UserCard, error) {
-	return s.repo.ListFriends(ctx, actorUserID)
+func (s *Service) ListFriends(ctx context.Context, actorUserID string, input ListFriendsInput) (domain.FriendsPage, error) {
+	page := input.Page
+	if page < 1 {
+		page = 1
+	}
+
+	limit := input.Limit
+	switch {
+	case limit <= 0:
+		limit = 15
+	case limit > 50:
+		limit = 50
+	}
+
+	offset := (page - 1) * limit
+	rows, err := s.repo.ListFriends(ctx, actorUserID, offset, limit+1)
+	if err != nil {
+		return domain.FriendsPage{}, err
+	}
+
+	result := domain.FriendsPage{
+		Items: rows,
+		Page:  page,
+		Limit: limit,
+	}
+	if len(rows) > limit {
+		nextPage := page + 1
+		result.NextPage = &nextPage
+		result.Items = rows[:limit]
+	}
+
+	return result, nil
 }
 
 func (s *Service) GetMe(ctx context.Context, userID string) (AuthResult, error) {

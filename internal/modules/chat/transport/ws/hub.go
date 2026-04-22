@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/geromme09/chat-system/internal/modules/chat/domain"
+	notificationdomain "github.com/geromme09/chat-system/internal/modules/notification/domain"
 	"github.com/gorilla/websocket"
 )
 
@@ -23,6 +24,7 @@ const (
 
 type ConversationLookup interface {
 	GetConversation(ctx context.Context, conversationID string) (domain.Conversation, error)
+	ListConversations(ctx context.Context, userID string) ([]domain.Conversation, error)
 }
 
 type Hub struct {
@@ -49,6 +51,17 @@ type typingEnvelope struct {
 	Event          string `json:"event"`
 	ConversationID string `json:"conversation_id"`
 	UserID         string `json:"user_id"`
+}
+
+type presenceEnvelope struct {
+	Event    string `json:"event"`
+	UserID   string `json:"user_id"`
+	IsOnline bool   `json:"is_online"`
+}
+
+type notificationEnvelope struct {
+	Event        string                          `json:"event"`
+	Notification notificationdomain.Notification `json:"notification"`
 }
 
 type inboundEnvelope struct {
@@ -87,7 +100,12 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request, userID string) {
 		return conn.SetReadDeadline(time.Now().Add(websocketPongTimeout))
 	})
 
-	h.register(userID, client)
+	firstConnection := h.register(userID, client)
+	h.sendPresenceSnapshot(userID, client)
+	if firstConnection {
+		h.notifyPresenceChange(userID, true)
+	}
+
 	go h.readLoop(client)
 }
 
@@ -113,35 +131,58 @@ func (h *Hub) NotifyMessageCreated(_ context.Context, conversation domain.Conver
 	return nil
 }
 
-func (h *Hub) register(userID string, client *clientConn) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if _, ok := h.clients[userID]; !ok {
-		h.clients[userID] = map[*clientConn]struct{}{}
+func (h *Hub) Deliver(_ context.Context, notification notificationdomain.Notification) error {
+	encoded, err := json.Marshal(notificationEnvelope{
+		Event:        notificationdomain.EventNotificationCreated,
+		Notification: notification,
+	})
+	if err != nil {
+		return err
 	}
-	h.clients[userID][client] = struct{}{}
+
+	h.writeToUser(notification.UserID, encoded)
+	return nil
 }
 
-func (h *Hub) unregister(userID string, client *clientConn) {
+func (h *Hub) register(userID string, client *clientConn) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	connections, ok := h.clients[userID]
 	if !ok {
-		return
+		connections = map[*clientConn]struct{}{}
+		h.clients[userID] = connections
+	}
+	firstConnection := len(connections) == 0
+	connections[client] = struct{}{}
+	return firstConnection
+}
+
+func (h *Hub) unregister(userID string, client *clientConn) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	connections, ok := h.clients[userID]
+	if !ok {
+		return false
 	}
 
 	delete(connections, client)
-	if len(connections) == 0 {
-		delete(h.clients, userID)
+	if len(connections) > 0 {
+		return false
 	}
+
+	delete(h.clients, userID)
+	return true
 }
 
 func (h *Hub) readLoop(client *clientConn) {
 	defer func() {
-		h.unregister(client.userID, client)
+		lastConnection := h.unregister(client.userID, client)
 		_ = client.conn.Close()
+		if lastConnection {
+			h.notifyPresenceChange(client.userID, false)
+		}
 	}()
 
 	for {
@@ -193,6 +234,80 @@ func (h *Hub) handleInboundEvent(client *clientConn, payload []byte) {
 	}
 }
 
+func (h *Hub) sendPresenceSnapshot(userID string, client *clientConn) {
+	peerIDs := h.relatedUserIDs(userID)
+	for _, peerID := range peerIDs {
+		payload := presenceEnvelope{
+			Event:    domain.EventPresenceUpdated,
+			UserID:   peerID,
+			IsOnline: h.isUserOnline(peerID),
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			continue
+		}
+		if err := client.write(encoded); err != nil {
+			h.unregister(userID, client)
+			_ = client.conn.Close()
+			return
+		}
+	}
+}
+
+func (h *Hub) notifyPresenceChange(userID string, isOnline bool) {
+	peerIDs := h.relatedUserIDs(userID)
+	if len(peerIDs) == 0 {
+		return
+	}
+
+	encoded, err := json.Marshal(presenceEnvelope{
+		Event:    domain.EventPresenceUpdated,
+		UserID:   userID,
+		IsOnline: isOnline,
+	})
+	if err != nil {
+		return
+	}
+
+	for _, peerID := range peerIDs {
+		h.writeToUser(peerID, encoded)
+	}
+}
+
+func (h *Hub) relatedUserIDs(userID string) []string {
+	conversations, err := h.conversationLookup.ListConversations(context.Background(), userID)
+	if err != nil {
+		return nil
+	}
+
+	peerSet := map[string]struct{}{}
+	peerIDs := make([]string, 0, len(conversations))
+	for _, conversation := range conversations {
+		peerID := conversation.OtherParticipant.UserID
+		if peerID == "" || peerID == userID {
+			continue
+		}
+		if _, exists := peerSet[peerID]; exists {
+			continue
+		}
+		peerSet[peerID] = struct{}{}
+		peerIDs = append(peerIDs, peerID)
+	}
+
+	return peerIDs
+}
+
+func (h *Hub) isUserOnline(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return len(h.clients[userID]) > 0
+}
+
+func (h *Hub) IsUserOnline(userID string) bool {
+	return h.isUserOnline(userID)
+}
+
 func (h *Hub) writeToUser(userID string, payload []byte) {
 	h.mu.RLock()
 	connections := h.clients[userID]
@@ -204,8 +319,11 @@ func (h *Hub) writeToUser(userID string, payload []byte) {
 
 	for _, client := range targets {
 		if err := client.write(payload); err != nil {
-			h.unregister(userID, client)
+			lastConnection := h.unregister(userID, client)
 			_ = client.conn.Close()
+			if lastConnection {
+				h.notifyPresenceChange(userID, false)
+			}
 		}
 	}
 }

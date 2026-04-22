@@ -10,6 +10,8 @@ import (
 	chatapp "github.com/geromme09/chat-system/internal/modules/chat/app"
 	chatinfra "github.com/geromme09/chat-system/internal/modules/chat/infra"
 	chatws "github.com/geromme09/chat-system/internal/modules/chat/transport/ws"
+	notificationapp "github.com/geromme09/chat-system/internal/modules/notification/app"
+	notificationinfra "github.com/geromme09/chat-system/internal/modules/notification/infra"
 	sportapp "github.com/geromme09/chat-system/internal/modules/sport/app"
 	sportinfra "github.com/geromme09/chat-system/internal/modules/sport/infra"
 	userapp "github.com/geromme09/chat-system/internal/modules/user/app"
@@ -26,14 +28,15 @@ import (
 )
 
 type App struct {
-	Config       config.Config
-	DB           *gorm.DB
-	Logger       *slog.Logger
-	UserService  *userapp.Service
-	SportService *sportapp.Service
-	ChatService  *chatapp.Service
-	ChatHub      *chatws.Hub
-	Publisher    messaging.Publisher
+	Config              config.Config
+	DB                  *gorm.DB
+	Logger              *slog.Logger
+	UserService         *userapp.Service
+	SportService        *sportapp.Service
+	ChatService         *chatapp.Service
+	NotificationService *notificationapp.Service
+	ChatHub             *chatws.Hub
+	Publisher           messaging.Publisher
 }
 
 func NewApp() (*App, error) {
@@ -49,24 +52,28 @@ func NewApp() (*App, error) {
 	storageService := storage.NewService(cfg.StorageBaseURL)
 	userRepo := userinfra.NewPostgresRepository(db)
 	chatRepo := chatinfra.NewPostgresRepository(db)
+	notificationRepo := notificationinfra.NewPostgresRepository(db)
 	chatHub := chatws.NewHub(logger, chatRepo)
 	publisher := messaging.NoopPublisher{}
 	sportRepo := sportinfra.NewPostgresRepository(db)
 	sportCache := sportCache(cfg)
+	notificationFactory := notificationapp.NewStaticChannelFactory(chatHub)
+	notificationService := notificationapp.NewService(notificationRepo, notificationFactory)
 
-	userService := userapp.NewService(userRepo, passwordHasher, tokenManager, storageService)
-	sportsService := sportapp.NewService(sportRepo, sportCache)
 	chatService := chatapp.NewService(chatRepo, userRepo, publisher, chatHub)
+	userService := userapp.NewService(userRepo, passwordHasher, tokenManager, storageService, publisher, notificationService, chatService)
+	sportsService := sportapp.NewService(sportRepo, sportCache)
 
 	return &App{
-		Config:       cfg,
-		DB:           db,
-		Logger:       logger,
-		UserService:  userService,
-		SportService: sportsService,
-		ChatService:  chatService,
-		ChatHub:      chatHub,
-		Publisher:    publisher,
+		Config:              cfg,
+		DB:                  db,
+		Logger:              logger,
+		UserService:         userService,
+		SportService:        sportsService,
+		ChatService:         chatService,
+		NotificationService: notificationService,
+		ChatHub:             chatHub,
+		Publisher:           publisher,
 	}, nil
 }
 

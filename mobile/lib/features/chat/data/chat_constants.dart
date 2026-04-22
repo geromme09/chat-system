@@ -11,11 +11,17 @@ class ChatApiPaths {
   }
 }
 
+class ChatSystemMessageBodies {
+  static const connection = '__system_connected__';
+}
+
 class ChatRealtimeFields {
   static const event = 'event';
   static const conversationID = 'conversation_id';
   static const message = 'message';
   static const userID = 'user_id';
+  static const isOnline = 'is_online';
+  static const notification = 'notification';
   static const token = 'token';
 }
 
@@ -23,4 +29,6 @@ class ChatRealtimeEvents {
   static const messageCreated = 'chat.message.created';
   static const typingStarted = 'chat.typing.started';
   static const typingStopped = 'chat.typing.stopped';
+  static const presenceUpdated = 'chat.presence.updated';
+  static const notificationCreated = 'notification.created';
 }

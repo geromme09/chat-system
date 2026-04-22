@@ -13,11 +13,13 @@ class ChatConversationArgs {
   const ChatConversationArgs({
     required this.conversationID,
     required this.title,
+    required this.participantUserID,
     required this.subtitle,
   });
 
   final String conversationID;
   final String title;
+  final String participantUserID;
   final String subtitle;
 }
 
@@ -64,12 +66,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   bool _didSendTypingStarted = false;
   String? _errorMessage;
   String? _pendingScrollTargetMessageID;
+  late String _presenceLabel;
   late final WidgetsBindingObserver _lifecycleObserver =
       _ChatLifecycleObserver(onResumed: _handleAppResumed);
 
   @override
   void initState() {
     super.initState();
+    _presenceLabel = _currentPresenceLabel();
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
     _loadConversation();
     _connectRealtime();
@@ -148,12 +152,22 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       _realtimeSubscription = ChatRealtimeClient.instance.events.listen((
         event,
       ) async {
-        if (!mounted || event.conversationID != widget.args.conversationID) {
+        if (!mounted) {
           return;
         }
 
         switch (event.event) {
+          case ChatRealtimeEvents.presenceUpdated:
+            if (event.userID == widget.args.participantUserID) {
+              setState(() {
+                _presenceLabel = event.isOnline ? 'Online' : 'Offline';
+              });
+            }
+            return;
           case ChatRealtimeEvents.messageCreated:
+            if (event.conversationID != widget.args.conversationID) {
+              return;
+            }
             final message = event.message;
             if (message == null) {
               return;
@@ -176,6 +190,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             }
             return;
           case ChatRealtimeEvents.typingStarted:
+            if (event.conversationID != widget.args.conversationID) {
+              return;
+            }
             if (event.userID.isNotEmpty && event.userID != appSession.userID) {
               setState(() {
                 _isOtherUserTyping = true;
@@ -186,6 +203,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             }
             return;
           case ChatRealtimeEvents.typingStopped:
+            if (event.conversationID != widget.args.conversationID) {
+              return;
+            }
             if (event.userID.isNotEmpty && event.userID != appSession.userID) {
               setState(() {
                 _isOtherUserTyping = false;
@@ -296,6 +316,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
   Future<void> _handleAppResumed() async {
     await _refreshConversationSilently();
+    if (!mounted) return;
+    setState(() {
+      _presenceLabel = _currentPresenceLabel();
+    });
   }
 
   void _replaceMessages(List<ChatMessage> messages) {
@@ -471,7 +495,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    widget.args.subtitle,
+                    _presenceLabel,
                     style: textTheme.bodyMedium,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -483,35 +507,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       ),
       body: Column(
         children: [
-          Container(
-            margin: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              AppSpacing.sm,
-              AppSpacing.lg,
-              AppSpacing.md,
-            ),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.shield_outlined,
-                  color: AppColors.accentStrong,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    'Messages are saved first and delivered live when the other player is online.',
-                    style: textTheme.bodyMedium,
-                  ),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: Builder(
               builder: (context) {
@@ -572,6 +567,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       child: _ChatBubble(
                         message: message,
                         isMine: message.senderUserID == appSession.userID,
+                        conversationTitle: widget.args.title,
                       ),
                     );
                   },
@@ -661,20 +657,55 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       ),
     );
   }
+
+  String _currentPresenceLabel() {
+    final participantUserID = widget.args.participantUserID.trim();
+    if (participantUserID.isEmpty) {
+      return widget.args.subtitle;
+    }
+
+    return ChatRealtimeClient.instance.isUserOnline(participantUserID)
+        ? 'Online'
+        : 'Offline';
+  }
 }
 
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({
     required this.message,
     required this.isMine,
+    required this.conversationTitle,
   });
 
   final ChatMessage message;
   final bool isMine;
+  final String conversationTitle;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    if (message.body == ChatSystemMessageBodies.connection) {
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.primarySoft,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            'You are now connected with ${_titleCase(conversationTitle)}.',
+            style: textTheme.bodyMedium?.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w700,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -733,6 +764,11 @@ class _ChatBubble extends StatelessWidget {
     final minute = local.minute.toString().padLeft(2, '0');
     final period = local.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
+  }
+
+  String _titleCase(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? 'your friend' : trimmed;
   }
 }
 

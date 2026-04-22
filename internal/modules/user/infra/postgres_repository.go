@@ -329,7 +329,7 @@ func (r *PostgresRepository) UpdateFriendRequestStatus(ctx context.Context, requ
 
 	model.Status = status
 	model.UpdatedAt = updatedAt
-	model.SeenAt = &updatedAt
+	model.SeenAt = nil
 
 	if err := r.db.WithContext(ctx).Save(&model).Error; err != nil {
 		return domain.FriendRequest{}, err
@@ -352,7 +352,7 @@ func (r *PostgresRepository) MarkIncomingFriendRequestsSeen(ctx context.Context,
 		}).Error
 }
 
-func (r *PostgresRepository) ListFriends(ctx context.Context, userID string) ([]domain.UserCard, error) {
+func (r *PostgresRepository) ListFriends(ctx context.Context, userID string, offset, limit int) ([]domain.UserCard, error) {
 	type friendRow struct {
 		UserID      string
 		Username    string
@@ -381,6 +381,8 @@ func (r *PostgresRepository) ListFriends(ctx context.Context, userID string) ([]
 		Where("(friendships.requester_user_id = ? OR friendships.addressee_user_id = ?)", userID, userID).
 		Where("friendships.status = ?", domain.FriendRequestStatusAccepted).
 		Order("user_profiles.display_name ASC, users.username ASC").
+		Offset(offset).
+		Limit(limit).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}

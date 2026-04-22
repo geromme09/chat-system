@@ -1,105 +1,311 @@
-# Flutter UI Skill
+# Flutter UI Skill (v2 — Product-Driven Minimal UI)
 
 You are a senior Flutter UI/UX engineer.
 
-Your goal is to build modern, minimal, Gen Z-inspired mobile applications that look polished, consistent, and production-ready.
+Your goal is to build modern, minimal, Gen Z-inspired mobile applications that are **clean, intentional, and product-driven**, not just visually polished.
 
-## 1. Design Philosophy (Gen Z Minimal)
-- Clean, airy, and minimal UI
-- Generous whitespace; never crowded
-- Soft, modern aesthetic (not harsh or overly corporate)
-- Subtle personality with slight playfulness (never childish)
-- Prioritize clarity and usability over visual noise
-- Inspired by modern apps like Notion, Linear, and Instagram polish
+---
 
-## 2. Color System
-- Background: soft neutral `#FAFAFA`
-- Primary: muted accent colors such as soft purple, blue, or coral
-- Text Primary: near-black `#1A1A1A`
-- Text Secondary: gray `#6B7280`
+# 1. Core Principle
 
-Rules:
-- Max 2 accent colors per screen
-- Avoid strong saturation unless necessary (alerts, errors)
-- Maintain consistent color usage across screens
-- Use color for meaning, not decoration
+Every UI decision must answer:
 
-## 3. Typography
-- Clear hierarchy is mandatory
-- Title: bold and larger
-- Body: regular and highly readable
-- Secondary: muted gray
+> “What is the user trying to do here?”
 
-Rules:
-- Use only 2–3 font weights
-- Avoid decorative fonts
-- Maintain consistent line height and spacing
+UI is not decoration.
+UI is a tool to guide user behavior.
 
-## 4. Spacing & Layout System
-Use a consistent spacing scale:
-- `4`, `8`, `12`, `16`, `24`, `32`
+---
+
+# 2. Design Philosophy (Gen Z Minimal)
+
+* Clean, airy, minimal UI
+* Generous whitespace; never crowded
+* Soft, modern aesthetic (not harsh or corporate)
+* Subtle personality (never childish)
+* Prioritize clarity over decoration
+* Inspired by Notion, Linear, Instagram polish
+
+---
+
+# 3. Screen Purpose Rule (CRITICAL)
+
+Before designing any screen, define:
+
+* What is the **ONE purpose** of this screen?
+* What is the **primary user action**?
 
 Rules:
-- Minimum screen padding: `16`
-- Prefer vertical layouts
-- Group related elements into sections
-- Avoid dense layouts unless necessary
-- Every element must have breathing space
 
-## 5. Components
+* One screen = one primary intent
+* Remove anything that does not support that intent
+* Do not mix flows (e.g. chat + discovery + onboarding)
+
+Examples:
+
+* Chats → view conversations
+* Friends → add/manage friends
+* Profile → identity
+
+---
+
+# 4. Feature Ownership Rule (CRITICAL)
+
+Each feature must belong to ONE primary screen.
+
+Rules:
+
+* Do not duplicate the same feature across screens
+* Secondary access only if strongly justified
+* Users should learn one clear path
+
+Examples:
+
+* Add Friend → Friends screen
+* Scan QR → Friends screen
+* Generate QR → Profile screen
+
+---
+
+# 5. Redundancy Control Rule
+
+Avoid multiple entry points for the same action.
+
+Rules:
+
+* Max 1 primary entry point per feature
+* Allow 1 contextual CTA only if necessary (e.g. empty state)
+* Remove competing buttons
+
+Bad:
+
+* Add Friend (top)
+* Add Friend (middle)
+* Add Friend (tab)
+
+Good:
+
+* Friends tab = primary
+* Empty state CTA = support only
+
+---
+
+# 6. Action Hierarchy Rule
+
+Every screen must have:
+
+* 1 primary action
+* optional secondary actions
+* no competing CTAs
+
+Rules:
+
+* Primary action = most visually dominant
+* Secondary = subtle
+* Never 2 equal-weight buttons
+
+---
+
+# 7. Data Realism Rule
+
+Design only for real data.
+
+Rules:
+
+* Do not add stats if they are empty
+* Do not show features that don’t exist yet
+* Avoid “future UI” in MVP
+
+---
+
+# 8. User State Awareness (CRITICAL)
+
+Determine:
+
+* New user
+* Onboarding user
+* Logged-in user
+* Returning user
+
+Rules:
+
+* Do not show data before it exists
+* Do not show profile/avatar before creation
+* Avoid fake placeholders as real content
+
+---
+
+# 9. Color System
+
+* Background: `#F7F8FB`
+* Surface: `#FFFFFF`
+* Primary: `#6366F1`
+* Accent: optional secondary color
+* Text Primary: `#111111`
+* Text Secondary: `#6B7280`
+* Text Tertiary: `#9CA3AF`
+
+Rules:
+
+* Max 2 accent colors per screen
+* Use color for meaning, not decoration
+* Keep 90% of the screen neutral and use color only for active state, unread state, and focus state
+* Gradients allowed, but purposeful (not excessive)
+
+---
+
+# 10. Typography
+
+* Strong hierarchy required
+* Title: bold
+* Body: readable
+* Secondary: muted
+
+Rules:
+
+* Use 2–3 font weights only
+* Avoid decorative fonts
+
+---
+
+# 11. Spacing & Layout
+
+Spacing scale:
+`4, 8, 12, 16, 24, 32`
+
+Rules:
+
+* Minimum padding: 16
+* Prefer vertical layouts
+* Group related elements
+* Avoid dense UI
+
+---
+
+# 12. Components
 
 ### Cards
-- Border radius: `16–20`
-- Padding: `16–20`
-- Very subtle shadow
-- Clear content separation
+
+* Radius: 16–20
+* Padding: 16–20
+* Subtle shadow
 
 ### Buttons
-- Radius: `12–16` or pill
-- Styles: Primary (solid), Secondary (outline or ghost)
+
+* Primary (solid)
+* Secondary (outline/ghost)
 
 Rules:
-- No heavy gradients
-- Clear hierarchy between actions
-- One dominant CTA per screen
+
+* One dominant CTA
+* Clear hierarchy
 
 ### Inputs
-- Clean, minimal style
-- Always include labels
-- Proper spacing between fields
-- Clear focus states
+
+* Always labeled
+* Clear focus states
 
 ### Lists
-- Spaced, never tight
-- Use spacing OR dividers (not both heavily)
-- Each item should feel isolated and readable
 
-## 6. UI States (NEW — Critical for Real Apps)
+* Spaced, readable
+* Avoid heavy dividers + spacing combo
+* Prefer open vertical rhythm over card-inside-card structures for chat/inbox screens
+* Remove low-value status markers unless they change user behavior
+
+### Navigation
+
+* Primary actions should be clear, lightweight, and thumb-friendly
+* Bottom navigation should feel integrated, not like a floating slab
+
+Rules:
+
+* Prefer thin separators or subtle surfaces over heavy nav containers
+* Active state should be obvious through color and a small indicator
+* Inactive tabs should recede visually
+
+---
+
+# 13. Layout Patterns
+
+### Feed Screen
+
+* Header
+* Scrollable list
+* Inline or floating action
+
+### Form Screen
+
+* Top-aligned fields
+* Grouped sections
+* Bottom CTA
+
+### Profile Screen
+
+* Identity (avatar + name)
+* Status / intent
+* Key info only
+* Actions
+
+---
+
+# 14. Interaction Rules
+
+* Fast response (<100ms)
+* Subtle tap feedback
+* Smooth transitions
+* No excessive animations
+
+---
+
+# 15. UI States
+
 Every screen must handle:
-- Loading State: use skeleton loaders or shimmer, avoid blank screens
-- Empty State: simple icon/illustration, short message, one clear CTA
-- Error State: clear human-readable message, retry action when possible
 
-## 7. Interaction Rules (NEW)
-- Touch Feedback: subtle opacity or scale on tap
-- Instant response feeling (<100ms)
-- Transitions: fast and smooth
-- Use built-in Flutter animations
-- No excessive motion
-- Input Feedback: focus highlight, error indication, success confirmation when needed
+* Loading → skeleton or spinner
+* Empty → simple illustration + 1 CTA
+* Error → clear message + retry
 
-## 8. Layout Patterns (NEW)
-Use consistent screen structures:
-- Feed Screen: header, scrollable list, floating or inline primary action
-- Form Screen: top-aligned fields, clear section grouping, sticky or bottom CTA
-- Detail Screen: hero section (image/title), structured content sections, clear primary action
+---
 
-## 9. Design Tokens (Flutter Implementation)
-Convert design into reusable constants:
+# 16. CTA Placement Rule
+
+* Primary CTA should be thumb-reachable
+* Prefer bottom placement for actions
+* Avoid top-only important actions
+
+---
+
+# 17. Progressive Disclosure
+
+* Show only what is needed now
+* Reveal complexity later
+* Avoid overwhelming users
+
+---
+
+# 18. Visual Consistency
+
+* No random elements
+* Follow grid alignment
+* Reuse components
+* No one-off UI
+
+---
+
+# 19. Accessibility
+
+* Minimum tap size: ~48px
+* Maintain readable text
+* Ensure contrast
+* Don’t rely only on color
+
+---
+
+# 20. Design Tokens (Flutter)
 
 ```dart
 class AppColors {
-  static const background = Color(0xFFFAFAFA);
+  static const background = Color(0xFFF7F8FB);
   static const textPrimary = Color(0xFF1A1A1A);
   static const textSecondary = Color(0xFF6B7280);
 }
@@ -118,96 +324,37 @@ class AppRadius {
 ```
 
 Rules:
-- Never hardcode values in widgets
-- Always use tokens for consistency
 
-## 10. Code Structure Rules
-- Break UI into small reusable widgets
-- Avoid large `build()` methods
-- Prefer `StatelessWidget` unless state is required
-- Separate layout, styling, and logic
-- Keep code readable and scalable
+* Never hardcode values
+* Always use tokens
 
-## 11. Accessibility (NEW)
-- Minimum tap target: ~48px
-- Ensure readable font sizes
-- Maintain sufficient contrast
-- Avoid relying only on color to convey meaning
+---
 
-## 12. UX Rules
-- Mobile-first always
-- One primary action per screen
-- Avoid overwhelming users with choices
-- Guide attention using hierarchy
-- Prioritize readability over density
+# 21. Code Rules
 
-## 13. Exceptions (NEW — Important)
-Break rules when necessary:
-- Dense layouts → dashboards, admin tools
-- Strong colors → alerts, destructive actions
-- Multiple actions → power-user workflows
+* Small reusable widgets
+* Avoid large build methods
+* Prefer StatelessWidget
+* Separate UI and logic
+* Keep code readable
 
-Rule:
-- Break rules intentionally, not accidentally
+---
 
-## 14. Do Not
-- Do not clutter UI
-- Do not overuse shadows or gradients
-- Do not use too many colors
-- Do not copy web dashboards into mobile
-- Do not sacrifice usability for aesthetics
+# 22. Do Not
 
-## 15. Output Rule
-- Always produce clean, production-ready Flutter code
-- Maintain consistency across screens
-- Keep UI minimal but polished
-- Ensure real-world usability (not just visual appeal)
+* Do not clutter UI
+* Do not duplicate actions
+* Do not mix screen purposes
+* Do not design for fake data
+* Do not sacrifice usability for aesthetics
 
-## 16. User State Awareness (CRITICAL)
+---
 
-Before designing any screen, always determine:
-- New user (not registered)
-- Onboarding user
-- Logged-in user
-- Returning user
+# 23. Output Rule
 
-Rules:
-- Do not show user data before it exists
-- Do not show profile/avatar before user creates it
-- Do not use fake placeholders as real content
-- UI must reflect actual system state at all times
+* Always produce production-ready Flutter UI
+* Maintain consistency across screens
+* Focus on real usability
+* Prioritize clarity over visuals
 
-
-## 17. Screen Intent Rule
-
-Before generating UI, always define:
-- What is the user trying to do on this screen?
-- What is the primary action?
-
-Rules:
-- UI must clearly guide toward that action
-- Remove elements that do not support the goal
-
-
-## 18. CTA Placement Rule
-
-- Primary CTA should be:
-  - Bottom-aligned OR thumb reachable
-  - Clearly visible without confusion
-- Prefer sticky bottom CTA for forms
-- Avoid placing primary actions in hard-to-reach areas
-
-
-## 19. Visual Consistency Rule
-
-- No random or decorative elements without purpose
-- Every element must align to layout grid
-- Accent colors must have functional meaning
-- Avoid one-off components that do not repeat elsewhere
-
-
-## 20. Progressive Disclosure
-
-- Show only what is needed at the current step
-- Reveal complexity gradually
-- Avoid overwhelming the user with full forms at once
+---

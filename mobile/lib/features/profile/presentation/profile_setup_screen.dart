@@ -76,11 +76,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       );
 
       appSession.updateProfile(updatedProfile);
+      appSession.clear();
 
       if (!mounted) return;
 
       Navigator.of(context).pushNamedAndRemoveUntil(
-        AppRoute.appHome.path,
+        AppRoute.welcome.path,
         (_) => false,
       );
     } catch (error) {

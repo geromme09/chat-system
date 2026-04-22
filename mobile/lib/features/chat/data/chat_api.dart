@@ -9,6 +9,7 @@ class ChatParticipant {
     required this.displayName,
     required this.avatarUrl,
     required this.city,
+    required this.isOnline,
   });
 
   final String userID;
@@ -16,6 +17,7 @@ class ChatParticipant {
   final String displayName;
   final String avatarUrl;
   final String city;
+  final bool isOnline;
 
   String get primaryLabel =>
       displayName.trim().isEmpty ? username : displayName;
@@ -29,6 +31,7 @@ class ChatParticipant {
       displayName: json['display_name'] as String? ?? '',
       avatarUrl: json['avatar_url'] as String? ?? '',
       city: json['city'] as String? ?? '',
+      isOnline: json['is_online'] as bool? ?? false,
     );
   }
 }

@@ -58,10 +58,12 @@ class AppSession extends ChangeNotifier {
   String? _token;
   String? _userID;
   SessionProfile? _profile;
+  String? _customStatus;
 
   String? get token => _token;
   String? get userID => _userID;
   SessionProfile? get profile => _profile;
+  String? get customStatus => _customStatus;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
 
   void setSession({
@@ -72,6 +74,7 @@ class AppSession extends ChangeNotifier {
     _token = token;
     _userID = userID;
     _profile = profile;
+    _customStatus = null;
     notifyListeners();
   }
 
@@ -80,10 +83,16 @@ class AppSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateCustomStatus(String status) {
+    _customStatus = status.trim();
+    notifyListeners();
+  }
+
   void clear() {
     _token = null;
     _userID = null;
     _profile = null;
+    _customStatus = null;
     notifyListeners();
   }
 }

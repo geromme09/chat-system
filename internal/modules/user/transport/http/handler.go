@@ -275,7 +275,12 @@ func (h *ListFriendsHandler) Serve(ctx httpx.Context) response.ApiResponse {
 		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	friends, err := h.service.ListFriends(ctx.Request.Context(), userID)
+	page, _ := strconv.Atoi(ctx.Query("page"))
+	limit, _ := strconv.Atoi(ctx.Query("limit"))
+	friends, err := h.service.ListFriends(ctx.Request.Context(), userID, app.ListFriendsInput{
+		Page:  page,
+		Limit: limit,
+	})
 	if err != nil {
 		return response.BadRequest(err)
 	}

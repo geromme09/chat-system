@@ -1,692 +1,84 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
-import '../../../app/router.dart';
-import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/brand_shell.dart';
-import '../../../core/widgets/section_card.dart';
-import '../../chat/data/chat_api.dart';
-import '../../chat/data/chat_unread_controller.dart';
-import '../../chat/presentation/chat_conversation_screen.dart';
-import '../data/friends_api.dart';
-import '../data/friend_search_api.dart';
 
-class FriendScannerScreen extends StatefulWidget {
-  const FriendScannerScreen({
-    super.key,
-    this.isEmbedded = false,
-    this.onOpenChatsTab,
-  });
-
-  final bool isEmbedded;
-  final VoidCallback? onOpenChatsTab;
-
-  @override
-  State<FriendScannerScreen> createState() => _FriendScannerScreenState();
-}
-
-class _FriendScannerScreenState extends State<FriendScannerScreen> {
-  final FriendSearchApi _friendSearchApi = FriendSearchApi();
-  final FriendsApi _friendsApi = FriendsApi();
-  final ChatApi _chatApi = ChatApi();
-  final TextEditingController _searchController = TextEditingController();
-
-  final List<FriendSearchResult> _results = <FriendSearchResult>[];
-  final List<FriendRequestRecord> _incomingRequests = <FriendRequestRecord>[];
-  final List<FriendSummary> _friends = <FriendSummary>[];
-  Timer? _searchDebounce;
-  bool _isSearching = false;
-  bool _isLoadingRequests = true;
-  bool _isLoadingFriends = true;
-  String? _searchMessage;
-  String? _requestMessage;
-  String? _friendsMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadIncomingRequests();
-    _loadFriends();
-  }
-
-  @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _openChats() {
-    if (widget.isEmbedded) {
-      widget.onOpenChatsTab?.call();
-      return;
-    }
-
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      AppRoute.appHome.path,
-      (_) => false,
-    );
-  }
-
-  Future<void> _loadIncomingRequests() async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingRequests = false;
-        _requestMessage = 'Please sign in again to load friend requests.';
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoadingRequests = true;
-      _requestMessage = null;
-    });
-
-    try {
-      final requests = await _friendsApi.listIncomingRequests(
-        token: token,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _incomingRequests
-          ..clear()
-          ..addAll(requests);
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _requestMessage = 'Unable to load friend requests right now.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingRequests = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _sendFriendRequest(FriendSearchResult result) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) return;
-
-    try {
-      await _friendsApi.sendFriendRequest(
-        token: token,
-        targetUserID: result.userID,
-      );
-
-      if (mounted) {
-        setState(() {
-          final index =
-              _results.indexWhere((item) => item.userID == result.userID);
-          if (index >= 0) {
-            _results[index] = FriendSearchResult(
-              userID: result.userID,
-              username: result.username,
-              displayName: result.displayName,
-              avatarUrl: result.avatarUrl,
-              city: result.city,
-              connectionStatus: FriendConnectionStatus.requested,
-            );
-          }
-        });
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Friend request sent to @${result.username}.'),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error.toString().replaceFirst('HttpException: ', ''),
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> _respondToRequest(
-    FriendRequestRecord request,
-    String action,
-  ) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) return;
-
-    try {
-      await _friendsApi.respondToRequest(
-        token: token,
-        requestID: request.id,
-        action: action,
-      );
-      await _loadIncomingRequests();
-      await _loadFriends();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            action == 'accept'
-                ? 'You are now connected with @${request.requester.username}.'
-                : 'Friend request declined.',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error.toString().replaceFirst('HttpException: ', ''),
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> _runSearch(String rawQuery) async {
-    final token = appSession.token;
-    final query = rawQuery.trim().toLowerCase();
-
-    if (query.length < 2) {
-      if (!mounted) return;
-      setState(() {
-        _results.clear();
-        _isSearching = false;
-        _searchMessage = 'Type at least 2 characters to search usernames.';
-      });
-      return;
-    }
-
-    if (token == null || token.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _results.clear();
-        _isSearching = false;
-        _searchMessage = 'Please sign in again to search for friends.';
-      });
-      return;
-    }
-
-    setState(() {
-      _isSearching = true;
-      _searchMessage = null;
-    });
-
-    try {
-      final results = await _friendSearchApi.searchUsers(
-        token: token,
-        query: query,
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _results
-          ..clear()
-          ..addAll(results);
-        _searchMessage =
-            results.isEmpty ? 'No players found for "$query".' : null;
-      });
-    } catch (_) {
-      if (!mounted) return;
-
-      setState(() {
-        _results.clear();
-        _searchMessage = 'Unable to search right now. Please try again.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSearching = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadFriends() async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingFriends = false;
-        _friendsMessage = 'Please sign in again to load your friends.';
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoadingFriends = true;
-      _friendsMessage = null;
-    });
-
-    try {
-      final friends = await _friendsApi.listFriends(token: token);
-
-      if (!mounted) return;
-      setState(() {
-        _friends
-          ..clear()
-          ..addAll(friends);
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _friendsMessage = 'Unable to load your friends right now.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingFriends = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _openChatWithFriend(FriendSummary friend) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      return;
-    }
-
-    try {
-      final conversation = await _chatApi.createConversation(
-        token: token,
-        request: CreateConversationRequest(
-          participantIDs: [friend.userID],
-        ),
-      );
-      await chatUnreadController.refresh();
-      if (!mounted) return;
-
-      await Navigator.of(context).pushNamed(
-        AppRoute.chatConversation.path,
-        arguments: ChatConversationArgs(
-          conversationID: conversation.id,
-          title:
-              friend.displayName.isEmpty ? friend.username : friend.displayName,
-          subtitle: friend.city.isEmpty ? '@${friend.username}' : friend.city,
-        ),
-      );
-      await _loadFriends();
-      await chatUnreadController.refresh();
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error.toString().replaceFirst('HttpException: ', ''),
-          ),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final content = FriendScannerContent(
-      isEmbedded: widget.isEmbedded,
-      isLoadingRequests: _isLoadingRequests,
-      requestMessage: _requestMessage,
-      incomingRequests: _incomingRequests,
-      isLoadingFriends: _isLoadingFriends,
-      friendsMessage: _friendsMessage,
-      friends: _friends,
-      searchController: _searchController,
-      isSearching: _isSearching,
-      searchMessage: _searchMessage,
-      results: _results,
-      onSearchChanged: (value) {
-        _searchDebounce?.cancel();
-        _searchDebounce = Timer(
-          const Duration(milliseconds: 350),
-          () => _runSearch(value),
-        );
-      },
-      onAcceptRequest: (request) => _respondToRequest(request, 'accept'),
-      onDeclineRequest: (request) => _respondToRequest(request, 'decline'),
-      onAddFriend: _sendFriendRequest,
-      onOpenChatWithFriend: _openChatWithFriend,
-      onOpenChats: _openChats,
-    );
-
-    if (widget.isEmbedded) {
-      return content;
-    }
-
-    return BrandShell(
-      showBack: true,
-      child: content,
-    );
-  }
-}
-
-class FriendScannerContent extends StatelessWidget {
-  const FriendScannerContent({
-    super.key,
-    required this.isLoadingRequests,
-    required this.requestMessage,
-    required this.incomingRequests,
-    required this.isLoadingFriends,
-    required this.friendsMessage,
-    required this.friends,
-    required this.searchController,
-    required this.isSearching,
-    required this.searchMessage,
-    required this.results,
-    required this.onSearchChanged,
-    required this.onAcceptRequest,
-    required this.onDeclineRequest,
-    required this.onAddFriend,
-    required this.onOpenChatWithFriend,
-    required this.onOpenChats,
-    this.isEmbedded = false,
-  });
-
-  final bool isEmbedded;
-  final bool isLoadingRequests;
-  final String? requestMessage;
-  final List<FriendRequestRecord> incomingRequests;
-  final bool isLoadingFriends;
-  final String? friendsMessage;
-  final List<FriendSummary> friends;
-  final TextEditingController searchController;
-  final bool isSearching;
-  final String? searchMessage;
-  final List<FriendSearchResult> results;
-  final ValueChanged<String> onSearchChanged;
-  final ValueChanged<FriendRequestRecord> onAcceptRequest;
-  final ValueChanged<FriendRequestRecord> onDeclineRequest;
-  final ValueChanged<FriendSearchResult> onAddFriend;
-  final ValueChanged<FriendSummary> onOpenChatWithFriend;
-  final VoidCallback onOpenChats;
+class FriendScannerScreen extends StatelessWidget {
+  const FriendScannerScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    final listView = ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.sm,
-        AppSpacing.lg,
-        AppSpacing.xl,
-      ),
-      children: [
-        Text(
-          'Scan and add friends',
-          style: textTheme.headlineMedium,
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Build your trusted circle first, then we can open the chat flow on top of it.',
-          style: textTheme.bodyMedium,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        const _ScannerPreviewCard(),
-        const SizedBox(height: AppSpacing.lg),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Friend requests',
-                style: textTheme.titleLarge,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (isLoadingRequests)
-                const Padding(
-                  padding: EdgeInsets.symmetric(
-                    vertical: AppSpacing.md,
-                  ),
-                  child: Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (requestMessage != null)
-                Text(
-                  requestMessage!,
-                  style: textTheme.bodyMedium,
-                )
-              else if (incomingRequests.isEmpty)
-                Text(
-                  'No pending friend requests yet.',
-                  style: textTheme.bodyMedium,
-                )
-              else
-                Column(
-                  children: incomingRequests
-                      .map(
-                        (request) => Padding(
-                          padding: const EdgeInsets.only(
-                            top: AppSpacing.sm,
-                          ),
-                          child: _IncomingRequestTile(
-                            request: request,
-                            onAccept: () => onAcceptRequest(request),
-                            onDecline: () => onDeclineRequest(request),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Your friends',
-                style: textTheme.titleLarge,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (isLoadingFriends)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (friendsMessage != null)
-                Text(
-                  friendsMessage!,
-                  style: textTheme.bodyMedium,
-                )
-              else if (friends.isEmpty)
-                Text(
-                  'Accept a friend request to start a direct chat.',
-                  style: textTheme.bodyMedium,
-                )
-              else
-                Column(
-                  children: friends
-                      .map(
-                        (friend) => Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.sm),
-                          child: _FriendTile(
-                            friend: friend,
-                            onChat: () => onOpenChatWithFriend(friend),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Find by username',
-                style: textTheme.titleLarge,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Search by username to add a friend. We start searching after 2 characters with a short debounce.',
-                style: textTheme.bodyMedium,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: searchController,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  labelText: 'Username search',
-                  hintText: 'Search like ge',
-                  prefixIcon: Icon(Icons.search_rounded),
-                ),
-                onChanged: onSearchChanged,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              if (isSearching)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      vertical: AppSpacing.md,
-                    ),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (searchMessage != null)
-                Text(
-                  searchMessage!,
-                  style: textTheme.bodyMedium,
-                )
-              else if (results.isNotEmpty)
-                Column(
-                  children: results
-                      .map(
-                        (result) => Padding(
-                          padding: const EdgeInsets.only(
-                            bottom: AppSpacing.sm,
-                          ),
-                          child: _SearchResultTile(
-                            result: result,
-                            onAdd: () => onAddFriend(result),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                )
-              else
-                Text(
-                  'Search results will appear here.',
-                  style: textTheme.bodyMedium,
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        OutlinedButton(
-          onPressed: onOpenChats,
-          child: Text(isEmbedded ? 'Back to chats' : 'Skip for now'),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        FilledButton(
-          onPressed: onOpenChats,
-          child: Text(
-            isEmbedded ? 'Open chats tab' : 'Continue to chats',
-          ),
-        ),
-      ],
-    );
-
-    if (isEmbedded) {
-      return SafeArea(child: listView);
-    }
-
-    return listView;
-  }
-}
-
-class _ScannerPreviewCard extends StatelessWidget {
-  const _ScannerPreviewCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Text(
-            'Scanner preview',
-            style: textTheme.titleLarge,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Container(
-            height: 280,
+          const _ScannerBackdrop(),
+          DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xFF111827),
-                  Color(0xFF1F2937),
+                  Colors.black.withValues(alpha: 0.48),
+                  Colors.black.withValues(alpha: 0.70),
+                  Colors.black.withValues(alpha: 0.88),
                 ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
               ),
             ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.08),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.xl,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      _ScannerIconButton(
+                        icon: Icons.close_rounded,
+                        onPressed: () => Navigator.of(context).maybePop(),
                       ),
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 188,
-                  height: 188,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    border: Border.all(
-                      color: AppColors.accentStrong,
-                      width: 2,
-                    ),
-                  ),
-                  child: Stack(
-                    children: const [
-                      _ScanCorner(alignment: Alignment.topLeft),
-                      _ScanCorner(alignment: Alignment.topRight),
-                      _ScanCorner(alignment: Alignment.bottomLeft),
-                      _ScanCorner(alignment: Alignment.bottomRight),
+                      Expanded(
+                        child: Text(
+                          'Scan QR',
+                          style: textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const _ScannerIconButton(
+                        icon: Icons.flash_on_rounded,
+                      ),
                     ],
                   ),
-                ),
-                Positioned(
-                  bottom: AppSpacing.lg,
-                  child: Text(
-                    'Point your camera at a friend QR code',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                    ),
+                  const Spacer(),
+                  Column(
+                    children: [
+                      const _ScannerFrame(),
+                      const SizedBox(height: AppSpacing.lg),
+                      Text(
+                        'Position the QR code\nwithin the frame',
+                        style: textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          height: 1.45,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  const _GalleryAction(),
+                ],
+              ),
             ),
           ),
         ],
@@ -695,8 +87,148 @@ class _ScannerPreviewCard extends StatelessWidget {
   }
 }
 
-class _ScanCorner extends StatelessWidget {
-  const _ScanCorner({
+class _ScannerBackdrop extends StatelessWidget {
+  const _ScannerBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF14110F),
+            Color(0xFF0C0F19),
+            Color(0xFF171724),
+          ],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: 120,
+            left: 48,
+            child: _GlowOrb(
+              size: 140,
+              color: const Color(0x44FF9A62),
+            ),
+          ),
+          Positioned(
+            top: 220,
+            right: 40,
+            child: _GlowOrb(
+              size: 88,
+              color: const Color(0x339A7BFF),
+            ),
+          ),
+          Positioned(
+            bottom: 140,
+            left: 32,
+            child: _GlowOrb(
+              size: 120,
+              color: const Color(0x228B5CF6),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlowOrb extends StatelessWidget {
+  const _GlowOrb({
+    required this.size,
+    required this.color,
+  });
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color,
+            blurRadius: size,
+            spreadRadius: 18,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScannerIconButton extends StatelessWidget {
+  const _ScannerIconButton({
+    required this.icon,
+    this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: Icon(icon, color: Colors.white),
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.white.withValues(alpha: 0.06),
+        foregroundColor: Colors.white,
+        minimumSize: const Size(44, 44),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: 0.10),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScannerFrame extends StatelessWidget {
+  const _ScannerFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 280,
+      height: 280,
+      child: Stack(
+        children: const [
+          Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.fromBorderSide(
+                  BorderSide(
+                    color: Color(0x66FFFFFF),
+                    width: 1.2,
+                  ),
+                ),
+                borderRadius: BorderRadius.all(Radius.circular(28)),
+              ),
+              child: SizedBox(width: 280, height: 280),
+            ),
+          ),
+          _ScannerCorner(alignment: Alignment.topLeft),
+          _ScannerCorner(alignment: Alignment.topRight),
+          _ScannerCorner(alignment: Alignment.bottomLeft),
+          _ScannerCorner(alignment: Alignment.bottomRight),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScannerCorner extends StatelessWidget {
+  const _ScannerCorner({
     required this.alignment,
   });
 
@@ -710,33 +242,27 @@ class _ScanCorner extends StatelessWidget {
     return Align(
       alignment: alignment,
       child: Container(
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(isTop && isLeft ? 16 : 0),
+            topRight: Radius.circular(isTop && !isLeft ? 16 : 0),
+            bottomLeft: Radius.circular(!isTop && isLeft ? 16 : 0),
+            bottomRight: Radius.circular(!isTop && !isLeft ? 16 : 0),
+          ),
           border: Border(
             top: isTop
-                ? const BorderSide(
-                    color: AppColors.accentStrong,
-                    width: 4,
-                  )
+                ? const BorderSide(color: Color(0xFF9F92FF), width: 5)
                 : BorderSide.none,
             bottom: !isTop
-                ? const BorderSide(
-                    color: AppColors.accentStrong,
-                    width: 4,
-                  )
+                ? const BorderSide(color: Color(0xFF9F92FF), width: 5)
                 : BorderSide.none,
             left: isLeft
-                ? const BorderSide(
-                    color: AppColors.accentStrong,
-                    width: 4,
-                  )
+                ? const BorderSide(color: Color(0xFF9F92FF), width: 5)
                 : BorderSide.none,
             right: !isLeft
-                ? const BorderSide(
-                    color: AppColors.accentStrong,
-                    width: 4,
-                  )
+                ? const BorderSide(color: Color(0xFF9F92FF), width: 5)
                 : BorderSide.none,
           ),
         ),
@@ -745,239 +271,39 @@ class _ScanCorner extends StatelessWidget {
   }
 }
 
-class _SearchResultTile extends StatelessWidget {
-  const _SearchResultTile({
-    required this.result,
-    required this.onAdd,
-  });
-
-  final FriendSearchResult result;
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final buttonLabel = switch (result.connectionStatus) {
-      FriendConnectionStatus.requested => 'Requested',
-      FriendConnectionStatus.incomingRequest => 'Respond',
-      FriendConnectionStatus.friends => 'Friends',
-      _ => 'Add',
-    };
-    final isAddable = result.connectionStatus == FriendConnectionStatus.add;
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.primarySoft,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  result.displayName.isEmpty
-                      ? result.username
-                      : result.displayName,
-                  style: textTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '@${result.username}',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (result.city.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(result.city, style: textTheme.bodyMedium),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          FilledButton(
-            onPressed: isAddable ? onAdd : null,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 44),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-              ),
-            ),
-            child: Text(buttonLabel),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _IncomingRequestTile extends StatelessWidget {
-  const _IncomingRequestTile({
-    required this.request,
-    required this.onAccept,
-    required this.onDecline,
-  });
-
-  final FriendRequestRecord request;
-  final VoidCallback onAccept;
-  final VoidCallback onDecline;
+class _GalleryAction extends StatelessWidget {
+  const _GalleryAction();
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySoft,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: const Icon(
-                  Icons.person_rounded,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      request.requester.displayName.isEmpty
-                          ? request.requester.username
-                          : request.requester.displayName,
-                      style: textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      '@${request.requester.username}',
-                      style: textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: onDecline,
-                  child: const Text('Decline'),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: FilledButton(
-                  onPressed: onAccept,
-                  child: const Text('Accept'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FriendTile extends StatelessWidget {
-  const _FriendTile({
-    required this.friend,
-    required this.onChat,
-  });
-
-  final FriendSummary friend;
-  final VoidCallback onChat;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: AppColors.primarySoft,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: AppColors.primary,
+    return Column(
+      children: [
+        Container(
+          width: 64,
+          height: 64,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.02),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.85),
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  friend.displayName.isEmpty
-                      ? friend.username
-                      : friend.displayName,
-                  style: textTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  friend.city.isEmpty ? '@${friend.username}' : friend.city,
-                  style: textTheme.bodyMedium,
-                ),
-              ],
-            ),
+          child: const Icon(
+            Icons.photo_library_outlined,
+            color: Colors.white,
           ),
-          const SizedBox(width: AppSpacing.sm),
-          FilledButton(
-            onPressed: onChat,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 44),
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            ),
-            child: const Text('Chat'),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Upload from gallery',
+          style: textTheme.bodyLarge?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

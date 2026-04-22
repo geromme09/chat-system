@@ -7,6 +7,7 @@ import (
 
 	chathttp "github.com/geromme09/chat-system/internal/modules/chat/transport/http"
 	chatws "github.com/geromme09/chat-system/internal/modules/chat/transport/ws"
+	notificationhttp "github.com/geromme09/chat-system/internal/modules/notification/transport/http"
 	sporthttp "github.com/geromme09/chat-system/internal/modules/sport/transport/http"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	userhttp "github.com/geromme09/chat-system/internal/modules/user/transport/http"
@@ -33,6 +34,9 @@ func RunHTTP(app *App) error {
 	mux.Handle("GET /api/v1/users/search", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewSearchUsersHandler(app.UserService))))
 	mux.Handle("POST /api/v1/friends/requests", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewSendFriendRequestHandler(app.UserService))))
 	mux.Handle("GET /api/v1/friends/requests/incoming", authMiddleware(tokenManager, httpx.MakeHandler(userhttp.NewIncomingFriendRequestsHandler(app.UserService))))
+	mux.Handle("GET /api/v1/notifications", authMiddleware(tokenManager, httpx.MakeHandler(notificationhttp.NewHandler(app.NotificationService))))
+	mux.Handle("POST /api/v1/notifications/read-all", authMiddleware(tokenManager, httpx.MakeHandler(notificationhttp.NewHandler(app.NotificationService))))
+	mux.Handle("POST /api/v1/notifications/", authMiddleware(tokenManager, httpx.MakeHandler(notificationhttp.NewHandler(app.NotificationService))))
 	mux.Handle("POST /api/v1/friends/requests/", authMiddleware(tokenManager, httpx.MakeHandler(httpx.HandlerFunc(func(ctx httpx.Context) response.ApiResponse {
 		if strings.HasSuffix(ctx.Request.URL.Path, "/accept") {
 			return userhttp.NewRespondFriendRequestHandler(app.UserService, userdomain.FriendRequestStatusAccepted).Serve(ctx)

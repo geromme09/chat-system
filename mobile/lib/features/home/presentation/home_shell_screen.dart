@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../chat/data/chat_unread_controller.dart';
 import '../../chat/presentation/chat_home_screen.dart';
-import '../../friends/presentation/friend_scanner_screen.dart';
 import '../../profile/presentation/profile_home_screen.dart';
 
 class HomeShellArgs {
@@ -27,7 +26,7 @@ class HomeShellScreen extends StatefulWidget {
 }
 
 class _HomeShellScreenState extends State<HomeShellScreen> {
-  late int _currentIndex = widget.args.initialTabIndex.clamp(0, 2);
+  late int _currentIndex = widget.args.initialTabIndex.clamp(0, 1);
 
   @override
   void initState() {
@@ -38,14 +37,7 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      ChatHomeScreen(
-        isEmbedded: true,
-        onOpenFriendsTab: () => setState(() => _currentIndex = 1),
-      ),
-      FriendScannerScreen(
-        isEmbedded: true,
-        onOpenChatsTab: () => setState(() => _currentIndex = 0),
-      ),
+      const ChatHomeScreen(isEmbedded: true),
       const ProfileHomeScreen(),
     ];
 
@@ -55,63 +47,127 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
         index: _currentIndex,
         children: pages,
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            0,
-            AppSpacing.md,
-            AppSpacing.md,
+      bottomNavigationBar: Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).padding.bottom,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.96),
+          border: Border(
+            top: BorderSide(
+              color: AppColors.border.withValues(alpha: 0.35),
+              width: 0.8,
+            ),
           ),
-          child: NavigationBar(
-            height: 72,
-            selectedIndex: _currentIndex,
-            indicatorColor: AppColors.primarySoft,
-            backgroundColor: AppColors.surface,
-            onDestinationSelected: (index) async {
-              setState(() {
-                _currentIndex = index;
-              });
-              if (index == 0) {
-                await chatUnreadController.refresh();
-              }
-            },
-            destinations: [
-              NavigationDestination(
-                icon: AnimatedBuilder(
+        ),
+        child: SizedBox(
+          height: 46,
+          child: Row(
+            children: [
+              Expanded(
+                child: AnimatedBuilder(
                   animation: chatUnreadController,
                   builder: (context, _) {
-                    return Badge(
-                      isLabelVisible: chatUnreadController.hasUnread,
-                      label: Text(chatUnreadController.badgeLabel),
-                      child: const Icon(Icons.chat_bubble_outline_rounded),
+                    return _BottomNavItem(
+                      label: 'Chats',
+                      selected: _currentIndex == 0,
+                      icon: Badge(
+                        isLabelVisible: chatUnreadController.hasUnread,
+                        label: Text(chatUnreadController.badgeLabel),
+                        child: Icon(
+                          _currentIndex == 0
+                              ? Icons.chat_bubble_outline_rounded
+                              : Icons.chat_bubble_outline_rounded,
+                        ),
+                      ),
+                      onTap: () async {
+                        setState(() {
+                          _currentIndex = 0;
+                        });
+                        await chatUnreadController.refresh();
+                      },
                     );
                   },
                 ),
-                selectedIcon: AnimatedBuilder(
-                  animation: chatUnreadController,
-                  builder: (context, _) {
-                    return Badge(
-                      isLabelVisible: chatUnreadController.hasUnread,
-                      label: Text(chatUnreadController.badgeLabel),
-                      child: const Icon(Icons.chat_bubble_rounded),
-                    );
+              ),
+              Expanded(
+                child: _BottomNavItem(
+                  label: 'Profile',
+                  selected: _currentIndex == 1,
+                  icon: const Icon(Icons.person_outline_rounded),
+                  onTap: () {
+                    setState(() {
+                      _currentIndex = 1;
+                    });
                   },
                 ),
-                label: 'Chats',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.group_outlined),
-                selectedIcon: Icon(Icons.group_rounded),
-                label: 'Friends',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.person_outline_rounded),
-                selectedIcon: Icon(Icons.person_rounded),
-                label: 'Profile',
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  const _BottomNavItem({
+    required this.label,
+    required this.selected,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Widget icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 1),
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: 2,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconTheme(
+                  data: IconThemeData(
+                    size: 20,
+                    color:
+                        selected ? AppColors.primary : AppColors.textTertiary,
+                  ),
+                  child: icon,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                    height: 1,
+                    color:
+                        selected ? AppColors.primary : AppColors.textTertiary,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
