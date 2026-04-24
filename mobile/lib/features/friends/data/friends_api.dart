@@ -72,7 +72,7 @@ class FriendNotificationRecord {
     required this.title,
     required this.body,
     required this.friendRequest,
-    required this.feedReply,
+    required this.feedInteraction,
     required this.createdAt,
     this.readAt,
   });
@@ -82,7 +82,7 @@ class FriendNotificationRecord {
   final String title;
   final String body;
   final FriendRequestRecord? friendRequest;
-  final FeedNotificationRecord? feedReply;
+  final FeedNotificationRecord? feedInteraction;
   final DateTime? createdAt;
   final DateTime? readAt;
 
@@ -97,15 +97,16 @@ class FriendNotificationRecord {
       friendRequest!.status == 'accepted';
 
   bool get isFeedPostComment =>
-      type == 'feed_post_comment' && feedReply != null;
+      type == 'feed_post_comment' && feedInteraction != null;
 
-  bool get isFeedReply => type == 'feed_comment_reply' && feedReply != null;
+  bool get isFeedReply =>
+      type == 'feed_comment_reply' && feedInteraction != null;
 
   bool get isFeedInteraction => isFeedPostComment || isFeedReply;
 
   FriendNotificationRecord copyWith({
     FriendRequestRecord? friendRequest,
-    FeedNotificationRecord? feedReply,
+    FeedNotificationRecord? feedInteraction,
     DateTime? readAt,
   }) {
     return FriendNotificationRecord(
@@ -114,7 +115,7 @@ class FriendNotificationRecord {
       title: title,
       body: body,
       friendRequest: friendRequest ?? this.friendRequest,
-      feedReply: feedReply ?? this.feedReply,
+      feedInteraction: feedInteraction ?? this.feedInteraction,
       createdAt: createdAt,
       readAt: readAt ?? this.readAt,
     );
@@ -134,7 +135,7 @@ class FriendNotificationRecord {
       friendRequest: friendRequestJson == null
           ? null
           : FriendRequestRecord.fromJson(friendRequestJson),
-      feedReply: feedReplyJson == null
+      feedInteraction: feedReplyJson == null
           ? null
           : FeedNotificationRecord.fromJson(feedReplyJson),
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),

@@ -99,15 +99,15 @@ func (s *Service) MarkRead(ctx context.Context, userID, notificationID string) e
 }
 
 func (s *Service) NotifyFriendRequestCreated(ctx context.Context, friendRequest userdomain.FriendRequest) error {
-	return s.createAndDispatch(ctx, notificationdomain.Notification{
-		ID:        s.idSource(),
-		UserID:    friendRequest.AddresseeID,
-		Type:      notificationdomain.TypeFriendRequestReceived,
-		Title:     primaryLabel(friendRequest.Requester),
-		Body:      "Friend Request",
-		Data:      friendRequestData(friendRequest),
-		CreatedAt: s.timeSource(),
-	})
+	return s.createAndDispatch(ctx, buildNotification(
+		s.idSource(),
+		s.timeSource(),
+		friendRequest.AddresseeID,
+		notificationdomain.TypeFriendRequestReceived,
+		primaryLabel(friendRequest.Requester),
+		"Friend Request",
+		friendRequestData(friendRequest),
+	))
 }
 
 func (s *Service) NotifyFriendRequestResponded(ctx context.Context, friendRequest userdomain.FriendRequest) error {
@@ -115,15 +115,15 @@ func (s *Service) NotifyFriendRequestResponded(ctx context.Context, friendReques
 		return nil
 	}
 
-	return s.createAndDispatch(ctx, notificationdomain.Notification{
-		ID:        s.idSource(),
-		UserID:    friendRequest.RequesterID,
-		Type:      notificationdomain.TypeFriendRequestAccepted,
-		Title:     primaryLabel(friendRequest.Addressee),
-		Body:      "Accepted your request",
-		Data:      friendRequestData(friendRequest),
-		CreatedAt: s.timeSource(),
-	})
+	return s.createAndDispatch(ctx, buildNotification(
+		s.idSource(),
+		s.timeSource(),
+		friendRequest.RequesterID,
+		notificationdomain.TypeFriendRequestAccepted,
+		primaryLabel(friendRequest.Addressee),
+		"Accepted your request",
+		friendRequestData(friendRequest),
+	))
 }
 
 func (s *Service) NotifyFeedPostComment(ctx context.Context, recipientUserID string, actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment) error {
@@ -131,15 +131,15 @@ func (s *Service) NotifyFeedPostComment(ctx context.Context, recipientUserID str
 		return nil
 	}
 
-	return s.createAndDispatch(ctx, notificationdomain.Notification{
-		ID:        s.idSource(),
-		UserID:    recipientUserID,
-		Type:      notificationdomain.TypeFeedPostComment,
-		Title:     primaryFeedLabel(actor),
-		Body:      "Commented on your post",
-		Data:      feedPostCommentData(actor, post, comment),
-		CreatedAt: s.timeSource(),
-	})
+	return s.createAndDispatch(ctx, buildNotification(
+		s.idSource(),
+		s.timeSource(),
+		recipientUserID,
+		notificationdomain.TypeFeedPostComment,
+		primaryFeedLabel(actor),
+		"Commented on your post",
+		feedPostCommentData(actor, post, comment),
+	))
 }
 
 func (s *Service) NotifyFeedCommentReply(ctx context.Context, recipientUserID string, actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment, parentComment feeddomain.Comment) error {
@@ -147,15 +147,15 @@ func (s *Service) NotifyFeedCommentReply(ctx context.Context, recipientUserID st
 		return nil
 	}
 
-	return s.createAndDispatch(ctx, notificationdomain.Notification{
-		ID:        s.idSource(),
-		UserID:    recipientUserID,
-		Type:      notificationdomain.TypeFeedCommentReply,
-		Title:     primaryFeedLabel(actor),
-		Body:      "Replied to your comment",
-		Data:      feedCommentReplyData(actor, post, comment, parentComment),
-		CreatedAt: s.timeSource(),
-	})
+	return s.createAndDispatch(ctx, buildNotification(
+		s.idSource(),
+		s.timeSource(),
+		recipientUserID,
+		notificationdomain.TypeFeedCommentReply,
+		primaryFeedLabel(actor),
+		"Replied to your comment",
+		feedCommentReplyData(actor, post, comment, parentComment),
+	))
 }
 
 func (s *Service) createAndDispatch(ctx context.Context, notification notificationdomain.Notification) error {
@@ -183,6 +183,18 @@ func primaryFeedLabel(author feeddomain.Author) string {
 		return author.DisplayName
 	}
 	return author.Username
+}
+
+func buildNotification(id string, createdAt time.Time, userID, notificationType, title, body string, data map[string]any) notificationdomain.Notification {
+	return notificationdomain.Notification{
+		ID:        id,
+		UserID:    userID,
+		Type:      notificationType,
+		Title:     title,
+		Body:      body,
+		Data:      data,
+		CreatedAt: createdAt,
+	}
 }
 
 func friendRequestData(friendRequest userdomain.FriendRequest) map[string]any {

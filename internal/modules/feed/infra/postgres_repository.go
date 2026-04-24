@@ -65,69 +65,9 @@ func (r *PostgresRepository) CreatePost(ctx context.Context, post domain.Post, i
 }
 
 func (r *PostgresRepository) ListPosts(ctx context.Context, actorUserID string, input domain.ListPostsInput) ([]domain.Post, error) {
-	reactionCounts := r.db.WithContext(ctx).
-		Table("feed_reactions").
-		Select("feed_post_id, COUNT(*) AS reaction_count").
-		Group("feed_post_id")
-
-	commentCounts := r.db.WithContext(ctx).
-		Table("feed_comments").
-		Select("feed_post_id, COUNT(*) AS comment_count").
-		Group("feed_post_id")
-
-	query := r.db.WithContext(ctx).
-		Table("feed_posts").
-		Select(`
-			feed_posts.id,
-			feed_posts.author_user_id,
-			users.username,
-			user_profiles.display_name,
-			user_profiles.avatar_url,
-			user_profiles.city,
-			feed_posts.post_type,
-			feed_posts.caption,
-			COALESCE(feed_media.media_url, '') AS image_url,
-			COALESCE(reactions.reaction_count, 0) AS reaction_count,
-			COALESCE(comments.comment_count, 0) AS comment_count,
-			CASE WHEN my_reaction.user_id IS NULL THEN FALSE ELSE TRUE END AS reacted_by_me,
-			feed_posts.created_at,
-			COALESCE(friendships.status, '') AS friendship_status,
-			COALESCE(friendships.requester_user_id, '') AS friendship_requester_id
-		`).
-		Joins("JOIN users ON users.id = feed_posts.author_user_id").
-		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
-		Joins("LEFT JOIN feed_media ON feed_media.feed_post_id = feed_posts.id").
-		Joins("LEFT JOIN (?) reactions ON reactions.feed_post_id = feed_posts.id", reactionCounts).
-		Joins("LEFT JOIN (?) comments ON comments.feed_post_id = feed_posts.id", commentCounts).
-		Joins(`
-			LEFT JOIN friendships ON (
-				(friendships.requester_user_id = ? AND friendships.addressee_user_id = feed_posts.author_user_id)
-				OR
-				(friendships.addressee_user_id = ? AND friendships.requester_user_id = feed_posts.author_user_id)
-			)
-		`, actorUserID, actorUserID).
-		Joins(`
-			LEFT JOIN feed_reactions my_reaction
-				ON my_reaction.feed_post_id = feed_posts.id
-				AND my_reaction.user_id = ?
-		`, actorUserID).
-		Order("feed_posts.created_at DESC, feed_posts.id DESC").
-		Limit(input.Limit)
-
-	if input.AuthorUserID != "" {
-		query = query.Where("feed_posts.author_user_id = ?", input.AuthorUserID)
-	}
-	if input.CursorCreatedAt != nil && input.CursorID != "" {
-		query = query.Where(
-			"(feed_posts.created_at < ?) OR (feed_posts.created_at = ? AND feed_posts.id < ?)",
-			*input.CursorCreatedAt,
-			*input.CursorCreatedAt,
-			input.CursorID,
-		)
-	}
-
-	rows := make([]feedPostRow, 0, input.Limit)
-	if err := query.Scan(&rows).Error; err != nil {
+	selectedPosts := r.selectedPostsQuery(ctx, input)
+	rows, err := r.listPostRows(ctx, actorUserID, selectedPosts, input.Limit)
+	if err != nil {
 		return nil, err
 	}
 
@@ -140,63 +80,27 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, actorUserID string, 
 }
 
 func (r *PostgresRepository) GetPost(ctx context.Context, actorUserID, postID string) (domain.Post, error) {
-	var row feedPostRow
-	reactionCounts := r.db.WithContext(ctx).
-		Table("feed_reactions").
-		Select("feed_post_id, COUNT(*) AS reaction_count").
-		Group("feed_post_id")
-	commentCounts := r.db.WithContext(ctx).
-		Table("feed_comments").
-		Select("feed_post_id, COUNT(*) AS comment_count").
-		Group("feed_post_id")
-
-	result := r.db.WithContext(ctx).
+	selectedPosts := r.db.WithContext(ctx).
 		Table("feed_posts").
 		Select(`
 			feed_posts.id,
 			feed_posts.author_user_id,
-			users.username,
-			user_profiles.display_name,
-			user_profiles.avatar_url,
-			user_profiles.city,
 			feed_posts.post_type,
 			feed_posts.caption,
-			COALESCE(feed_media.media_url, '') AS image_url,
-			COALESCE(reactions.reaction_count, 0) AS reaction_count,
-			COALESCE(comments.comment_count, 0) AS comment_count,
-			CASE WHEN my_reaction.user_id IS NULL THEN FALSE ELSE TRUE END AS reacted_by_me,
-			feed_posts.created_at,
-			COALESCE(friendships.status, '') AS friendship_status,
-			COALESCE(friendships.requester_user_id, '') AS friendship_requester_id
+			feed_posts.created_at
 		`).
-		Joins("JOIN users ON users.id = feed_posts.author_user_id").
-		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
-		Joins("LEFT JOIN feed_media ON feed_media.feed_post_id = feed_posts.id").
-		Joins("LEFT JOIN (?) reactions ON reactions.feed_post_id = feed_posts.id", reactionCounts).
-		Joins("LEFT JOIN (?) comments ON comments.feed_post_id = feed_posts.id", commentCounts).
-		Joins(`
-			LEFT JOIN friendships ON (
-				(friendships.requester_user_id = ? AND friendships.addressee_user_id = feed_posts.author_user_id)
-				OR
-				(friendships.addressee_user_id = ? AND friendships.requester_user_id = feed_posts.author_user_id)
-			)
-		`, actorUserID, actorUserID).
-		Joins(`
-			LEFT JOIN feed_reactions my_reaction
-				ON my_reaction.feed_post_id = feed_posts.id
-				AND my_reaction.user_id = ?
-		`, actorUserID).
 		Where("feed_posts.id = ?", postID).
-		Limit(1).
-		Scan(&row)
-	if result.Error != nil {
-		return domain.Post{}, result.Error
+		Limit(1)
+
+	rows, err := r.listPostRows(ctx, actorUserID, selectedPosts, 1)
+	if err != nil {
+		return domain.Post{}, err
 	}
-	if result.RowsAffected == 0 {
+	if len(rows) == 0 {
 		return domain.Post{}, errors.New("post not found")
 	}
 
-	return mapPostRow(actorUserID, row), nil
+	return mapPostRow(actorUserID, rows[0]), nil
 }
 
 func (r *PostgresRepository) ToggleReaction(ctx context.Context, postID, userID string, reactedAt time.Time) (domain.Post, error) {
@@ -339,6 +243,92 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 	}
 
 	return comments, nil
+}
+
+func (r *PostgresRepository) selectedPostsQuery(ctx context.Context, input domain.ListPostsInput) *gorm.DB {
+	query := r.db.WithContext(ctx).
+		Table("feed_posts").
+		Select(`
+			feed_posts.id,
+			feed_posts.author_user_id,
+			feed_posts.post_type,
+			feed_posts.caption,
+			feed_posts.created_at
+		`)
+
+	if input.AuthorUserID != "" {
+		query = query.Where("feed_posts.author_user_id = ?", input.AuthorUserID)
+	}
+	if input.CursorCreatedAt != nil && input.CursorID != "" {
+		query = query.Where(
+			"(feed_posts.created_at < ?) OR (feed_posts.created_at = ? AND feed_posts.id < ?)",
+			*input.CursorCreatedAt,
+			*input.CursorCreatedAt,
+			input.CursorID,
+		)
+	}
+
+	return query.
+		Order("feed_posts.created_at DESC, feed_posts.id DESC").
+		Limit(input.Limit)
+}
+
+func (r *PostgresRepository) listPostRows(ctx context.Context, actorUserID string, selectedPosts *gorm.DB, limit int) ([]feedPostRow, error) {
+	reactionCounts := r.db.WithContext(ctx).
+		Table("feed_reactions").
+		Select("feed_reactions.feed_post_id, COUNT(*) AS reaction_count").
+		Joins("JOIN (?) selected_posts ON selected_posts.id = feed_reactions.feed_post_id", selectedPosts).
+		Group("feed_reactions.feed_post_id")
+
+	commentCounts := r.db.WithContext(ctx).
+		Table("feed_comments").
+		Select("feed_comments.feed_post_id, COUNT(*) AS comment_count").
+		Joins("JOIN (?) selected_posts ON selected_posts.id = feed_comments.feed_post_id", selectedPosts).
+		Group("feed_comments.feed_post_id")
+
+	rows := make([]feedPostRow, 0, limit)
+	if err := r.db.WithContext(ctx).
+		Table("(?) AS selected_posts", selectedPosts).
+		Select(`
+			selected_posts.id,
+			selected_posts.author_user_id,
+			users.username,
+			user_profiles.display_name,
+			user_profiles.avatar_url,
+			user_profiles.city,
+			selected_posts.post_type,
+			selected_posts.caption,
+			COALESCE(feed_media.media_url, '') AS image_url,
+			COALESCE(reactions.reaction_count, 0) AS reaction_count,
+			COALESCE(comments.comment_count, 0) AS comment_count,
+			CASE WHEN my_reaction.user_id IS NULL THEN FALSE ELSE TRUE END AS reacted_by_me,
+			selected_posts.created_at,
+			COALESCE(friendships.status, '') AS friendship_status,
+			COALESCE(friendships.requester_user_id, '') AS friendship_requester_id
+		`).
+		Joins("JOIN users ON users.id = selected_posts.author_user_id").
+		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
+		Joins("LEFT JOIN feed_media ON feed_media.feed_post_id = selected_posts.id").
+		Joins("LEFT JOIN (?) reactions ON reactions.feed_post_id = selected_posts.id", reactionCounts).
+		Joins("LEFT JOIN (?) comments ON comments.feed_post_id = selected_posts.id", commentCounts).
+		Joins(`
+			LEFT JOIN friendships ON (
+				(friendships.requester_user_id = ? AND friendships.addressee_user_id = selected_posts.author_user_id)
+				OR
+				(friendships.addressee_user_id = ? AND friendships.requester_user_id = selected_posts.author_user_id)
+			)
+		`, actorUserID, actorUserID).
+		Joins(`
+			LEFT JOIN feed_reactions my_reaction
+				ON my_reaction.feed_post_id = selected_posts.id
+				AND my_reaction.user_id = ?
+		`, actorUserID).
+		Order("selected_posts.created_at DESC, selected_posts.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	return rows, nil
 }
 
 func mapPostRow(actorUserID string, current feedPostRow) domain.Post {

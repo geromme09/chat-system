@@ -177,10 +177,6 @@ func (s *Service) CreateComment(ctx context.Context, author domain.Author, postI
 	if len(body) > 500 {
 		return domain.Comment{}, errors.New("comment is too long")
 	}
-	if _, err := s.repo.GetPost(ctx, author.UserID, postID); err != nil {
-		return domain.Comment{}, err
-	}
-
 	post, err := s.repo.GetPost(ctx, author.UserID, postID)
 	if err != nil {
 		return domain.Comment{}, err

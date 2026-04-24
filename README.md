@@ -36,9 +36,13 @@ Implemented or working now:
 - signup and login
 - profile read and update flow
 - profile completion flow with optional gender and hobbies
+- self-profile navigation from the feed back into the main mobile shell
 - friend requests
 - accepted friendships
+- feed post creation, reactions, comments, and replies
 - notifications for friend request events
+- notifications when someone comments on your post
+- notifications when someone replies to your comment
 - 1:1 chat conversations
 - realtime chat socket support
 - Flutter mobile shell for auth, chat, friends, notifications, and profile
@@ -48,8 +52,9 @@ Already polished enough for the current phase:
 
 - chat screen hierarchy and spacing
 - lightweight bottom navigation
-- notifications interaction rules
+- notifications interaction rules for friend requests, post comments, and comment replies
 - route transitions for pushed screens
+- post detail flow that lets notification taps reopen the post conversation context
 
 ## What Is Still Missing
 
@@ -176,12 +181,19 @@ Implemented endpoints include:
 - `POST /api/v1/auth/login`
 - `GET /api/v1/profile/me`
 - `PUT /api/v1/profile/me`
+- `GET /api/v1/profile/{userID}`
 - `GET /api/v1/users/search`
 - `POST /api/v1/friends/requests`
 - `GET /api/v1/friends`
 - `GET /api/v1/notifications`
 - `POST /api/v1/notifications/read-all`
 - `POST /api/v1/notifications/{id}/read`
+- `GET /api/v1/feed`
+- `POST /api/v1/feed`
+- `GET /api/v1/feed/{id}`
+- `POST /api/v1/feed/{id}/reactions`
+- `GET /api/v1/feed/{id}/comments`
+- `POST /api/v1/feed/{id}/comments`
 - `GET /api/v1/chat/conversations`
 - `POST /api/v1/chat/conversations`
 - `GET /api/v1/chat/conversations/{id}/messages`

@@ -175,29 +175,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   void _openAuthorProfile(FeedPostAuthor author) {
-    if (author.userID == appSession.userID) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) =>
-              const HomeShellScreen(args: HomeShellArgs(initialTabIndex: 2)),
-        ),
-      );
+    if (_isCurrentUser(author.userID)) {
+      _openMyProfileTab();
       return;
     }
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FriendSearchProfileScreen(
-          result: FriendSearchResult(
-            userID: author.userID,
-            username: author.username,
-            displayName: author.displayName,
-            avatarUrl: author.avatarUrl,
-            city: author.city,
-            connectionStatus: author.connectionStatus,
-          ),
+          result: _friendSearchResultFromAuthor(author),
         ),
       ),
+    );
+  }
+
+  bool _isCurrentUser(String userID) => userID == appSession.userID;
+
+  void _openMyProfileTab() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            const HomeShellScreen(args: HomeShellArgs(initialTabIndex: 2)),
+      ),
+    );
+  }
+
+  FriendSearchResult _friendSearchResultFromAuthor(FeedPostAuthor author) {
+    return FriendSearchResult(
+      userID: author.userID,
+      username: author.username,
+      displayName: author.displayName,
+      avatarUrl: author.avatarUrl,
+      city: author.city,
+      connectionStatus: author.connectionStatus,
     );
   }
 

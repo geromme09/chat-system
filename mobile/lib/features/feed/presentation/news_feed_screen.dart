@@ -294,22 +294,37 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
   }
 
   Future<void> _openNotification(FriendNotificationRecord notification) async {
-    final navigator = Navigator.of(context);
     await _markNotificationRead(notification.id);
 
-    final feedReply = notification.feedReply;
-    if (notification.isFeedInteraction && feedReply != null) {
-      await navigator.push(
-        MaterialPageRoute<void>(
-          builder: (_) => PostDetailScreen(
-            postID: feedReply.postID,
-            focusCommentID: feedReply.commentID,
-          ),
-        ),
-      );
+    if (notification.isFeedInteraction) {
+      await _openFeedInteractionNotification(notification);
       return;
     }
 
+    await _openFriendRequestNotification(notification);
+  }
+
+  Future<void> _openFeedInteractionNotification(
+    FriendNotificationRecord notification,
+  ) async {
+    final feedInteraction = notification.feedInteraction;
+    if (feedInteraction == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PostDetailScreen(
+          postID: feedInteraction.postID,
+          focusCommentID: feedInteraction.commentID,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFriendRequestNotification(
+    FriendNotificationRecord notification,
+  ) async {
     final request = notification.friendRequest;
     if (request == null) {
       return;
@@ -317,27 +332,23 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
 
     final isIncomingRequest = notification.type == 'friend_request_received';
     final peer = isIncomingRequest ? request.requester : request.addressee;
+    final title = _friendSummaryTitle(peer);
     final showChatButton =
         notification.isAcceptedRequest || request.status == 'accepted';
 
-    await navigator.push<void>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => FriendRequestProfileScreen(
           request: request,
-          title: peer.displayName.trim().isEmpty
-              ? peer.username
-              : peer.displayName.trim(),
+          title: title,
           isIncomingRequest: isIncomingRequest,
           showChatButton: showChatButton,
           onAcceptRequest: () => _respondToRequest(request, 'accept'),
           onDeclineRequest: () => _respondToRequest(request, 'decline'),
           onOpenChat: () => _openChatWithUser(
             userID: peer.userID,
-            title: peer.displayName.trim().isEmpty
-                ? peer.username
-                : peer.displayName.trim(),
-            subtitle:
-                peer.city.trim().isEmpty ? '@${peer.username}' : peer.city,
+            title: title,
+            subtitle: _friendSummarySubtitle(peer),
           ),
         ),
       ),
@@ -550,30 +561,50 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
   }
 
   void _openAuthorProfile(FeedPostAuthor author) {
-    if (author.userID == appSession.userID) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) =>
-              const HomeShellScreen(args: HomeShellArgs(initialTabIndex: 2)),
-        ),
-      );
+    if (_isCurrentUser(author.userID)) {
+      _openMyProfileTab();
       return;
     }
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FriendSearchProfileScreen(
-          result: FriendSearchResult(
-            userID: author.userID,
-            username: author.username,
-            displayName: author.displayName,
-            avatarUrl: author.avatarUrl,
-            city: author.city,
-            connectionStatus: author.connectionStatus,
-          ),
+          result: _friendSearchResultFromAuthor(author),
         ),
       ),
     );
+  }
+
+  bool _isCurrentUser(String userID) => userID == appSession.userID;
+
+  void _openMyProfileTab() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            const HomeShellScreen(args: HomeShellArgs(initialTabIndex: 2)),
+      ),
+    );
+  }
+
+  FriendSearchResult _friendSearchResultFromAuthor(FeedPostAuthor author) {
+    return FriendSearchResult(
+      userID: author.userID,
+      username: author.username,
+      displayName: author.displayName,
+      avatarUrl: author.avatarUrl,
+      city: author.city,
+      connectionStatus: author.connectionStatus,
+    );
+  }
+
+  String _friendSummaryTitle(FriendSummary friend) {
+    final displayName = friend.displayName.trim();
+    return displayName.isEmpty ? friend.username : displayName;
+  }
+
+  String _friendSummarySubtitle(FriendSummary friend) {
+    final city = friend.city.trim();
+    return city.isEmpty ? '@${friend.username}' : city;
   }
 
   Future<void> _toggleReaction(FeedPost post) async {

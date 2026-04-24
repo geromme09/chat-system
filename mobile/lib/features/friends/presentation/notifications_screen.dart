@@ -291,30 +291,8 @@ class _NotificationListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final request = notification.friendRequest;
-    final feedReply = notification.feedReply;
-    final isIncoming = notification.isPendingIncomingRequest && request != null;
-    final senderCard = request != null
-        ? (isIncoming ? request.requester : request.addressee)
-        : feedReply?.author;
-    final title = notification.title.trim().isNotEmpty
-        ? notification.title.trim()
-        : senderCard == null
-            ? 'Notification'
-            : senderCard.displayName.trim().isEmpty
-                ? senderCard.username
-                : senderCard.displayName;
-    final subtitle = notification.body.trim().isNotEmpty
-        ? notification.isFeedInteraction && senderCard != null
-            ? notification.isFeedPostComment
-                ? '$title commented on your post'
-                : '$title replied to your comment'
-            : notification.body.trim()
-        : notification.isFeedInteraction
-            ? notification.isFeedPostComment
-                ? 'Commented on your post'
-                : 'Replied to your comment'
-            : 'Friend Request';
+    final title = _title;
+    final subtitle = _subtitle(title);
     final isUnread = notification.readAt == null;
 
     return Material(
@@ -372,14 +350,7 @@ class _NotificationListTile extends StatelessWidget {
                     if (notification.createdAt != null) ...[
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        notification.isFeedReply
-                            ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to open the post'
-                            : notification.isFeedPostComment
-                                ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to open the post'
-                                : notification.isPendingIncomingRequest
-                                    ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to review'
-                                    : _timeAgo(
-                                        notification.createdAt!.toLocal()),
+                        _metaLabel(notification.createdAt!.toLocal()),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: AppColors.textSecondary,
                             ),
@@ -403,6 +374,64 @@ class _NotificationListTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  FriendSummary? get _senderCard {
+    final request = notification.friendRequest;
+    if (request != null) {
+      return notification.isPendingIncomingRequest
+          ? request.requester
+          : request.addressee;
+    }
+
+    return notification.feedInteraction?.author;
+  }
+
+  String get _title {
+    final explicitTitle = notification.title.trim();
+    if (explicitTitle.isNotEmpty) {
+      return explicitTitle;
+    }
+
+    final sender = _senderCard;
+    if (sender == null) {
+      return 'Notification';
+    }
+
+    final displayName = sender.displayName.trim();
+    return displayName.isEmpty ? sender.username : displayName;
+  }
+
+  String _subtitle(String title) {
+    if (notification.isFeedInteraction) {
+      if (_senderCard == null) {
+        return notification.isFeedPostComment
+            ? 'Commented on your post'
+            : 'Replied to your comment';
+      }
+
+      return notification.isFeedPostComment
+          ? '$title commented on your post'
+          : '$title replied to your comment';
+    }
+
+    final body = notification.body.trim();
+    if (body.isNotEmpty) {
+      return body;
+    }
+
+    return 'Friend Request';
+  }
+
+  String _metaLabel(DateTime createdAt) {
+    final relativeTime = _timeAgo(createdAt);
+    if (notification.isFeedInteraction) {
+      return '$relativeTime · Tap to open the post';
+    }
+    if (notification.isPendingIncomingRequest) {
+      return '$relativeTime · Tap to review';
+    }
+    return relativeTime;
   }
 
   static String _timeAgo(DateTime value) {
