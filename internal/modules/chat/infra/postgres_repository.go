@@ -207,6 +207,7 @@ func (r *PostgresRepository) ListMessages(ctx context.Context, conversationID, u
 		Body           string
 		CreatedAt      time.Time
 		ReadAt         *time.Time
+		PeerReadAt     *time.Time
 	}
 
 	rows := make([]row, 0)
@@ -217,14 +218,18 @@ func (r *PostgresRepository) ListMessages(ctx context.Context, conversationID, u
 			messages.sender_user_id,
 			messages.body,
 			messages.created_at,
-			message_reads.read_at
+			message_reads.read_at,
+			peer_reads.read_at AS peer_read_at
 		FROM messages
 		LEFT JOIN message_reads
 			ON message_reads.message_id = messages.id
 			AND message_reads.user_id = ?
+		LEFT JOIN message_reads peer_reads
+			ON peer_reads.message_id = messages.id
+			AND peer_reads.user_id <> ?
 		WHERE messages.conversation_id = ?
 		ORDER BY messages.created_at ASC, messages.id ASC
-	`, userID, conversationID).Scan(&rows).Error; err != nil {
+	`, userID, userID, conversationID).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -237,13 +242,14 @@ func (r *PostgresRepository) ListMessages(ctx context.Context, conversationID, u
 			Body:           row.Body,
 			CreatedAt:      row.CreatedAt,
 			ReadAt:         row.ReadAt,
+			PeerReadAt:     row.PeerReadAt,
 		})
 	}
 
 	return messages, nil
 }
 
-func (r *PostgresRepository) MarkConversationRead(ctx context.Context, conversationID, userID string, readAt time.Time) (int64, error) {
+func (r *PostgresRepository) MarkConversationRead(ctx context.Context, conversationID, userID string, readAt time.Time) (domain.ConversationReadResult, error) {
 	result := r.db.WithContext(ctx).Exec(`
 		INSERT INTO message_reads (message_id, user_id, read_at)
 		SELECT messages.id, ?, ?
@@ -256,10 +262,37 @@ func (r *PostgresRepository) MarkConversationRead(ctx context.Context, conversat
 			AND message_reads.message_id IS NULL
 	`, userID, readAt, userID, conversationID, userID)
 	if result.Error != nil {
-		return 0, result.Error
+		return domain.ConversationReadResult{}, result.Error
 	}
 
-	return result.RowsAffected, nil
+	readResult := domain.ConversationReadResult{
+		ConversationID: conversationID,
+		MarkedCount:    result.RowsAffected,
+		ReaderUserID:   userID,
+	}
+	if result.RowsAffected == 0 {
+		return readResult, nil
+	}
+
+	type latestReadRow struct {
+		ID string
+	}
+
+	var latest latestReadRow
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT messages.id
+		FROM messages
+		WHERE messages.conversation_id = ?
+			AND messages.sender_user_id <> ?
+		ORDER BY messages.created_at DESC, messages.id DESC
+		LIMIT 1
+	`, conversationID, userID).Scan(&latest).Error; err != nil {
+		return domain.ConversationReadResult{}, err
+	}
+
+	readResult.LastReadMessageID = latest.ID
+	readResult.ReadAt = &readAt
+	return readResult, nil
 }
 
 func (r *PostgresRepository) GetUnreadCount(ctx context.Context, userID string) (int64, error) {

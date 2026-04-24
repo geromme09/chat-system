@@ -41,11 +41,13 @@ class AuthResult {
   const AuthResult({
     required this.token,
     required this.userID,
+    required this.profileComplete,
     required this.profile,
   });
 
   final String token;
   final String userID;
+  final bool profileComplete;
   final SessionProfile profile;
 
   factory AuthResult.fromEnvelope(Map<String, dynamic> envelope) {
@@ -63,6 +65,7 @@ class AuthResult {
     return AuthResult(
       token: data['token'] as String? ?? '',
       userID: user['id'] as String? ?? '',
+      profileComplete: user['profile_complete'] as bool? ?? false,
       profile: SessionProfile.fromJson(profile),
     );
   }

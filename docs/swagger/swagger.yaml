@@ -1,17 +1,14 @@
 definitions:
-  app.CreateConversationInput:
-    properties:
-      participant_ids:
-        items:
-          type: string
-        type: array
-    type: object
   app.LoginInput:
     properties:
-      email:
+      identifier:
         type: string
       password:
+        minLength: 8
         type: string
+    required:
+    - identifier
+    - password
     type: object
   app.SignUpInput:
     properties:
@@ -28,7 +25,15 @@ definitions:
       email:
         type: string
       password:
+        minLength: 8
         type: string
+      username:
+        type: string
+    required:
+    - display_name
+    - email
+    - password
+    - username
     type: object
   app.UpdateProfileInput:
     properties:
@@ -42,14 +47,14 @@ definitions:
         type: string
       display_name:
         type: string
-      skill_level:
+      gender:
         type: string
-      sports:
-        items:
-          type: string
-        type: array
+      hobbies_text:
+        type: string
       visible:
         type: boolean
+    required:
+    - display_name
     type: object
   response.ApiResponse:
     properties:
@@ -68,7 +73,7 @@ definitions:
     type: object
 info:
   contact: {}
-  description: Mobile-first sports social app backend API.
+  description: FaceOff Social backend API for identity, friends, chat, and notifications.
   title: Chat System API
   version: "1.0"
 paths:
@@ -126,7 +131,7 @@ paths:
       summary: Sign up
       tags:
       - auth
-  /api/v1/chat/conversations:
+  /api/v1/profile/{userID}:
     get:
       produces:
       - application/json
@@ -143,104 +148,9 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/response.ApiResponse'
-      summary: List conversations
+      summary: Get public profile
       tags:
-      - chat
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Conversation payload
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/app.CreateConversationInput'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-      summary: Create conversation
-      tags:
-      - chat
-  /api/v1/chat/conversations/{id}/messages:
-    get:
-      consumes:
-      - application/json
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "405":
-          description: Method Not Allowed
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-      summary: List or send conversation messages
-      tags:
-      - chat
-    post:
-      consumes:
-      - application/json
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-        "405":
-          description: Method Not Allowed
-          schema:
-            $ref: '#/definitions/response.ApiResponse'
-      summary: List or send conversation messages
-      tags:
-      - chat
+      - profile
   /api/v1/profile/me:
     get:
       produces:
@@ -289,21 +199,8 @@ paths:
       summary: Update my profile
       tags:
       - profile
-  /api/v1/sports:
+  /api/v1/users/search:
     get:
-      parameters:
-      - description: Search query
-        in: query
-        name: q
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Page size
-        in: query
-        name: limit
-        type: integer
       produces:
       - application/json
       responses:
@@ -315,9 +212,13 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/response.ApiResponse'
-      summary: List sports
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/response.ApiResponse'
+      summary: Search users
       tags:
-      - sports
+      - users
 securityDefinitions:
   BearerAuth:
     in: header

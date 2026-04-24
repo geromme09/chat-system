@@ -1,22 +1,84 @@
-# Chat System
+# FaceOff Social
 
-Chat System is a mobile-first sports social app project with a Go backend and a Flutter mobile shell.
+FaceOff Social is the social platform layer for the broader FaceOff ecosystem.
+
+It is responsible for:
+
+- account registration and login
+- player profile and identity
+- friend graph
+- direct chat
+- notifications
+- mobile companion experience for player social features
+
+It is not the fighting game client itself. The planned game experience will authenticate through FaceOff Social and may later publish selected character summaries back into the social app.
 
 ## Repository
 
 - GitHub: `https://github.com/geromme09/chat-system`
 - Go module: `github.com/geromme09/chat-system`
 
-## Current scope
+## Product Role
 
-- Domain-first modular monolith structure in Go
-- Runnable API skeleton for auth, profile, and 1:1 chat
-- In-memory adapters for fast local development
-- SQL migrations for Postgres
-- RabbitMQ-ready event contracts for future async flows
-- Flutter mobile shell targeting Android and iOS
+FaceOff Social is the player-facing social service that sits beside the future FaceOff game layer.
 
-## Project structure
+Current direction:
+
+- `FaceOff Social`
+  The identity, friends, chat, and notification platform
+- `FaceOff Arena` or equivalent future game client
+  Character creation, fighting gameplay, matchmaking, ranking, and match results
+
+## Current Progress
+
+Implemented or working now:
+
+- signup and login
+- profile read and update flow
+- profile completion flow with optional gender and hobbies
+- friend requests
+- accepted friendships
+- notifications for friend request events
+- 1:1 chat conversations
+- realtime chat socket support
+- Flutter mobile shell for auth, chat, friends, notifications, and profile
+- paginated friends and notifications APIs with mobile lazy loading
+
+Already polished enough for the current phase:
+
+- chat screen hierarchy and spacing
+- lightweight bottom navigation
+- notifications interaction rules
+- route transitions for pushed screens
+
+## What Is Still Missing
+
+Before FaceOff Social is a solid long-term platform for the game ecosystem, we still need:
+
+- clearer public player card / player identity surface
+- stable profile fields that are useful outside chat
+- game-facing identity integration plan
+- selected fighter summary display in profile once the game exists
+- friend challenge / invite surfaces if the game needs social invites
+- match history and ranking summary display once the game starts sending results
+- stronger API and data contracts between Social and the future game service
+- production-grade auth/session strategy if the game becomes a separate client
+
+## What Should Not Move Into This Repo
+
+The following belong to the future game domain, not FaceOff Social:
+
+- fighting gameplay
+- hitboxes, moves, combos, and combat systems
+- controller and voice combat input
+- fighter animation systems
+- in-match ranking logic
+- core matchmaking orchestration for live fights
+- full character generation pipeline and asset production
+
+FaceOff Social may display game-owned data, but it should not become the source of truth for combat systems.
+
+## Project Structure
 
 ```text
 .
@@ -30,10 +92,9 @@ Chat System is a mobile-first sports social app project with a Go backend and a 
 └── mobile/       # Flutter mobile shell
 ```
 
-## Backend quick start
+## Backend Quick Start
 
-1. Copy the environment file.
-2. Start local infrastructure and the API.
+To start the full local stack:
 
 ```bash
 cp .env.example .env
@@ -42,10 +103,16 @@ make infra-up
 
 The API starts on `:8080` by default.
 
-If you prefer to run the API outside Docker:
+To run only the Go API on the host:
 
 ```bash
 make api
+```
+
+To run only the API container with Docker dependencies:
+
+```bash
+docker compose up -d --build api
 ```
 
 ## Environment
@@ -58,35 +125,21 @@ HTTP_ADDR=:8080
 TOKEN_SECRET=change-me
 POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/chat_system?sslmode=disable
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
-STORAGE_BASE_URL=https://cdn.example.com
+STORAGE_BASE_URL=http://localhost:8080
+STORAGE_LOCAL_DIR=var/storage
 ```
 
-## Local infrastructure with Docker
-
-Start Postgres, run migrations, start Redis and RabbitMQ, and launch the API:
+## Local Infrastructure With Docker
 
 ```bash
 make infra-up
-```
-
-Useful commands:
-
-```bash
-make infra-up
+make infra-down
+make infra-logs
 make api-logs
 make migrate-logs
-make infra-logs
 ```
 
-Postgres uses [`docker/postgres/Dockerfile`](./docker/postgres/Dockerfile), and migrations run through [`docker/migrate/Dockerfile`](./docker/migrate/Dockerfile).
-
-## Migration behavior
-
-- Migrations use `goose` with SQL `Up` and `Down` sections.
-- SQL files in [`migrations/`](./migrations) are applied in filename order.
-- `goose` supports rollbacks, status inspection, and new migration creation.
-
-Useful migration commands:
+## Migrations
 
 ```bash
 make migrate-up
@@ -95,97 +148,17 @@ make migrate-status
 make migrate-create name=add_rank_indexes
 ```
 
-## Swagger docs
-
-Every API endpoint should be documented with Swagger annotations in its handler, then regenerated into the OpenAPI docs.
-
-Generate the OpenAPI docs:
-
-```bash
-make swagger
-```
-
-Start the API:
-
-```bash
-make infra-up
-```
-
-Then access Swagger UI at:
-
-```text
-http://localhost:8080/swagger/index.html
-```
-
-The generated spec files live in [`docs/swagger/`](./docs/swagger).
-
-Swagger workflow for backend changes:
-
-```bash
-make swagger
-make test
-```
-
-When adding or changing an endpoint, update its Swagger annotations in the handler in the same change.
-
-## Logging
-
-Supported environments:
-
-- `dev`
-- `staging`
-- `prod`
-
-HTTP request logs include:
-
-- request ID
-- method
-- path
-- URL query string
-- status
-- remote address
-- duration
-- request and response sizes
-
-Default logging profile by environment:
-
-- `dev`: access logs on, request/response body debug on, SQL debug on, text logs
-- `staging`: access logs off, request/response body debug off, SQL debug off, JSON logs
-- `prod`: access logs on, request/response body debug off, SQL debug off, JSON logs
-
-You can still override any default with explicit environment variables.
-
-Request and response bodies are disabled outside `dev` by default for safety. Enable them only when debugging:
-
-```bash
-LOG_BODY_DEBUG=true
-```
-
-SQL query logging is also optional and can be enabled when you need to inspect GORM activity:
-
-```bash
-SQL_LOG_DEBUG=true
-SQL_SLOW_THRESHOLD_MS=200
-```
-
-## Testing and formatting
+## Testing And Formatting
 
 ```bash
 make test
 make fmt
 ```
 
-## Mobile app
-
-Fetch Flutter dependencies:
+## Mobile App
 
 ```bash
 make mobile-get
-```
-
-Run the mobile app against the backend:
-
-```bash
 make mobile-run
 ```
 
@@ -195,32 +168,35 @@ Override the API host when needed:
 make mobile-run API_BASE_URL=http://<your-machine-ip>:8080
 ```
 
-## Current API endpoints
+## Current API Surface
+
+Implemented endpoints include:
 
 - `POST /api/v1/auth/signup`
 - `POST /api/v1/auth/login`
 - `GET /api/v1/profile/me`
 - `PUT /api/v1/profile/me`
+- `GET /api/v1/users/search`
+- `POST /api/v1/friends/requests`
+- `GET /api/v1/friends`
+- `GET /api/v1/notifications`
+- `POST /api/v1/notifications/read-all`
+- `POST /api/v1/notifications/{id}/read`
 - `GET /api/v1/chat/conversations`
 - `POST /api/v1/chat/conversations`
 - `GET /api/v1/chat/conversations/{id}/messages`
 - `POST /api/v1/chat/conversations/{id}/messages`
-- `GET /api/v1/sports`
+- `GET /api/v1/chat/unread-count`
 - `GET /healthz`
 
 Use `Authorization: Bearer <token>` for authenticated endpoints.
 
-## Git workflow
+## Next Planning Focus
 
-For now, the plan is:
+The next documentation and implementation phase should define:
 
-1. Push the current baseline to `main`.
-2. Create a feature branch for each new feature.
-3. Test the feature branch.
-4. Merge back into `main` once validated.
-
-Example:
-
-```bash
-git checkout -b feature/feature-2
-```
+- FaceOff Social responsibilities vs future game responsibilities
+- the minimum shared identity contract between social and game
+- what game-created character data is mirrored into social
+- what progression summaries Social should display
+- which current onboarding fields remain social-only and which move into fighter creation later

@@ -64,6 +64,14 @@ type notificationEnvelope struct {
 	Notification notificationdomain.Notification `json:"notification"`
 }
 
+type conversationReadEnvelope struct {
+	Event             string     `json:"event"`
+	ConversationID    string     `json:"conversation_id"`
+	ReaderUserID      string     `json:"reader_user_id"`
+	LastReadMessageID string     `json:"last_read_message_id"`
+	ReadAt            *time.Time `json:"read_at,omitempty"`
+}
+
 type inboundEnvelope struct {
 	Event          string `json:"event"`
 	ConversationID string `json:"conversation_id"`
@@ -141,6 +149,28 @@ func (h *Hub) Deliver(_ context.Context, notification notificationdomain.Notific
 	}
 
 	h.writeToUser(notification.UserID, encoded)
+	return nil
+}
+
+func (h *Hub) NotifyConversationRead(_ context.Context, conversation domain.Conversation, result domain.ConversationReadResult) error {
+	encoded, err := json.Marshal(conversationReadEnvelope{
+		Event:             domain.EventConversationRead,
+		ConversationID:    conversation.ID,
+		ReaderUserID:      result.ReaderUserID,
+		LastReadMessageID: result.LastReadMessageID,
+		ReadAt:            result.ReadAt,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, participantID := range conversation.ParticipantIDs {
+		if participantID == result.ReaderUserID {
+			continue
+		}
+		h.writeToUser(participantID, encoded)
+	}
+
 	return nil
 }
 

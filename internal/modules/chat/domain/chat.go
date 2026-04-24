@@ -11,6 +11,7 @@ const (
 	AggregateConversation = "conversation"
 
 	EventMessageCreated  = "chat.message.created"
+	EventConversationRead = "chat.conversation.read"
 	EventTypingStarted   = "chat.typing.started"
 	EventTypingStopped   = "chat.typing.stopped"
 	EventPresenceUpdated = "chat.presence.updated"
@@ -48,11 +49,15 @@ type Message struct {
 	Body           string     `json:"body"`
 	CreatedAt      time.Time  `json:"created_at"`
 	ReadAt         *time.Time `json:"read_at,omitempty"`
+	PeerReadAt     *time.Time `json:"peer_read_at,omitempty"`
 }
 
 type ConversationReadResult struct {
-	ConversationID string `json:"conversation_id"`
-	MarkedCount    int64  `json:"marked_count"`
+	ConversationID    string     `json:"conversation_id"`
+	MarkedCount       int64      `json:"marked_count"`
+	ReaderUserID      string     `json:"reader_user_id"`
+	LastReadMessageID string     `json:"last_read_message_id"`
+	ReadAt            *time.Time `json:"read_at,omitempty"`
 }
 
 type UnreadCount struct {
@@ -66,7 +71,7 @@ type Repository interface {
 	GetConversation(ctx context.Context, conversationID string) (Conversation, error)
 	CreateMessage(ctx context.Context, message Message) error
 	ListMessages(ctx context.Context, conversationID, userID string) ([]Message, error)
-	MarkConversationRead(ctx context.Context, conversationID, userID string, readAt time.Time) (int64, error)
+	MarkConversationRead(ctx context.Context, conversationID, userID string, readAt time.Time) (ConversationReadResult, error)
 	GetUnreadCount(ctx context.Context, userID string) (int64, error)
 }
 

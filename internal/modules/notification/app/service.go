@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	feeddomain "github.com/geromme09/chat-system/internal/modules/feed/domain"
 	notificationdomain "github.com/geromme09/chat-system/internal/modules/notification/domain"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	"github.com/geromme09/chat-system/internal/platform/identity"
@@ -124,6 +126,38 @@ func (s *Service) NotifyFriendRequestResponded(ctx context.Context, friendReques
 	})
 }
 
+func (s *Service) NotifyFeedPostComment(ctx context.Context, recipientUserID string, actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment) error {
+	if strings.TrimSpace(recipientUserID) == "" {
+		return nil
+	}
+
+	return s.createAndDispatch(ctx, notificationdomain.Notification{
+		ID:        s.idSource(),
+		UserID:    recipientUserID,
+		Type:      notificationdomain.TypeFeedPostComment,
+		Title:     primaryFeedLabel(actor),
+		Body:      "Commented on your post",
+		Data:      feedPostCommentData(actor, post, comment),
+		CreatedAt: s.timeSource(),
+	})
+}
+
+func (s *Service) NotifyFeedCommentReply(ctx context.Context, recipientUserID string, actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment, parentComment feeddomain.Comment) error {
+	if strings.TrimSpace(recipientUserID) == "" {
+		return nil
+	}
+
+	return s.createAndDispatch(ctx, notificationdomain.Notification{
+		ID:        s.idSource(),
+		UserID:    recipientUserID,
+		Type:      notificationdomain.TypeFeedCommentReply,
+		Title:     primaryFeedLabel(actor),
+		Body:      "Replied to your comment",
+		Data:      feedCommentReplyData(actor, post, comment, parentComment),
+		CreatedAt: s.timeSource(),
+	})
+}
+
 func (s *Service) createAndDispatch(ctx context.Context, notification notificationdomain.Notification) error {
 	created, err := s.repo.Create(ctx, notification)
 	if err != nil {
@@ -142,6 +176,13 @@ func primaryLabel(card userdomain.UserCard) string {
 		return card.DisplayName
 	}
 	return card.Username
+}
+
+func primaryFeedLabel(author feeddomain.Author) string {
+	if author.DisplayName != "" {
+		return author.DisplayName
+	}
+	return author.Username
 }
 
 func friendRequestData(friendRequest userdomain.FriendRequest) map[string]any {
@@ -166,6 +207,44 @@ func friendRequestData(friendRequest userdomain.FriendRequest) map[string]any {
 				"display_name": friendRequest.Addressee.DisplayName,
 				"avatar_url":   friendRequest.Addressee.AvatarURL,
 				"city":         friendRequest.Addressee.City,
+			},
+		},
+	}
+}
+
+func feedPostCommentData(actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment) map[string]any {
+	return map[string]any{
+		"feed_comment": map[string]any{
+			"post_id":      post.ID,
+			"comment_id":   comment.ID,
+			"post_caption": post.Caption,
+			"comment_body": comment.Body,
+			"author": map[string]any{
+				"user_id":      actor.UserID,
+				"username":     actor.Username,
+				"display_name": actor.DisplayName,
+				"avatar_url":   actor.AvatarURL,
+				"city":         actor.City,
+			},
+		},
+	}
+}
+
+func feedCommentReplyData(actor feeddomain.Author, post feeddomain.Post, comment feeddomain.Comment, parentComment feeddomain.Comment) map[string]any {
+	return map[string]any{
+		"feed_reply": map[string]any{
+			"post_id":           post.ID,
+			"comment_id":        comment.ID,
+			"parent_comment_id": parentComment.ID,
+			"post_caption":      post.Caption,
+			"comment_body":      comment.Body,
+			"parent_body":       parentComment.Body,
+			"author": map[string]any{
+				"user_id":      actor.UserID,
+				"username":     actor.Username,
+				"display_name": actor.DisplayName,
+				"avatar_url":   actor.AvatarURL,
+				"city":         actor.City,
 			},
 		},
 	}

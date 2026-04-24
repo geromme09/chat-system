@@ -78,6 +78,13 @@ Error:
 - Keep functions small and testable
 
 ## Database Rules
+- Use GORM for Go/Postgres persistence by default
+- Keep repository queries simple, readable, and index-friendly
+- Prefer seek/cursor pagination over large `OFFSET` scans for feeds and timelines
+- Prefer a small number of focused queries over one oversized complex query when the simpler approach is easier to reason about and fast enough
+- Add or update Postgres indexes together with query shape changes
+- Avoid unnecessary subqueries, cross joins, and database-specific tricks unless there is a measured reason
+- Select only the columns the use case needs
 - Use parameterized queries or consistent ORM usage
 - Repository layer is the only layer that talks to DB
 - Prevent SQL injection always

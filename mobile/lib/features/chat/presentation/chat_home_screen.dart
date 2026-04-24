@@ -7,9 +7,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../friends/data/friend_search_api.dart';
 import '../../friends/data/friends_api.dart';
-import '../../friends/presentation/friend_request_profile_screen.dart';
 import '../../friends/presentation/friend_search_profile_screen.dart';
-import '../../friends/presentation/notifications_screen.dart';
 import '../data/chat_api.dart';
 import '../data/chat_constants.dart';
 import '../data/chat_realtime_client.dart';
@@ -30,7 +28,6 @@ class ChatHomeScreen extends StatefulWidget {
 
 class _ChatHomeScreenState extends State<ChatHomeScreen> {
   static const int _friendsPageSize = 50;
-  static const int _notificationsPageSize = 15;
 
   final ChatApi _chatApi = ChatApi();
   final FriendsApi _friendsApi = FriendsApi();
@@ -40,8 +37,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
   final List<ChatConversationSummary> _conversations =
       <ChatConversationSummary>[];
   final List<FriendSummary> _friends = <FriendSummary>[];
-  final List<FriendNotificationRecord> _notifications =
-      <FriendNotificationRecord>[];
   final List<FriendSearchResult> _searchResults = <FriendSearchResult>[];
 
   StreamSubscription<ChatRealtimeEvent>? _realtimeSubscription;
@@ -50,11 +45,9 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
 
   bool _isLoading = true;
   bool _isSearching = false;
-  bool _isLoadingMoreNotifications = false;
   String? _errorMessage;
   String? _searchMessage;
   String _searchQuery = '';
-  int? _nextNotificationsPage;
 
   @override
   void initState() {
@@ -92,11 +85,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
       final results = await Future.wait<dynamic>([
         _chatApi.listConversations(token: token),
         _friendsApi.listFriends(token: token, page: 1, limit: _friendsPageSize),
-        _friendsApi.listNotifications(
-          token: token,
-          page: 1,
-          limit: _notificationsPageSize,
-        ),
         chatUnreadController.refresh(),
       ]);
 
@@ -108,10 +96,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
         _friends
           ..clear()
           ..addAll((results[1] as FriendsPage).items);
-        _notifications
-          ..clear()
-          ..addAll((results[2] as NotificationsPage).items);
-        _nextNotificationsPage = (results[2] as NotificationsPage).nextPage;
       });
 
       if (_searchQuery.trim().length >= 2) {
@@ -141,11 +125,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
       final results = await Future.wait<dynamic>([
         _chatApi.listConversations(token: token),
         _friendsApi.listFriends(token: token, page: 1, limit: _friendsPageSize),
-        _friendsApi.listNotifications(
-          token: token,
-          page: 1,
-          limit: _notificationsPageSize,
-        ),
         chatUnreadController.refresh(),
       ]);
       if (!mounted) return;
@@ -156,48 +135,9 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
         _friends
           ..clear()
           ..addAll((results[1] as FriendsPage).items);
-        _notifications
-          ..clear()
-          ..addAll((results[2] as NotificationsPage).items);
-        _nextNotificationsPage = (results[2] as NotificationsPage).nextPage;
       });
     } catch (_) {
       // Keep the current list if background refresh fails.
-    }
-  }
-
-  Future<void> _loadMoreNotifications() async {
-    final token = appSession.token;
-    if (token == null ||
-        token.isEmpty ||
-        _isLoadingMoreNotifications ||
-        _nextNotificationsPage == null) {
-      return;
-    }
-
-    setState(() {
-      _isLoadingMoreNotifications = true;
-    });
-
-    try {
-      final page = await _friendsApi.listNotifications(
-        token: token,
-        page: _nextNotificationsPage!,
-        limit: _notificationsPageSize,
-      );
-      if (!mounted) return;
-      setState(() {
-        _notifications.addAll(page.items);
-        _nextNotificationsPage = page.nextPage;
-      });
-    } catch (_) {
-      // Keep current notifications if the next page fails.
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingMoreNotifications = false;
-        });
-      }
     }
   }
 
@@ -389,129 +329,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
     }
   }
 
-  Future<void> _openNotifications() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NotificationsScreen(
-          notifications: _notifications,
-          isLoading: _isLoading,
-          isLoadingMore: _isLoadingMoreNotifications,
-          hasMore: _nextNotificationsPage != null,
-          message: _errorMessage,
-          onOpenNotification: _openNotification,
-          onLoadMore: _loadMoreNotifications,
-        ),
-      ),
-    );
-    await _refreshConversationsSilently();
-  }
-
-  Future<void> _openNotification(FriendNotificationRecord notification) async {
-    final request = notification.friendRequest;
-    if (request == null || !notification.isPendingIncomingRequest) {
-      return;
-    }
-    final navigator = Navigator.of(context);
-
-    await _markNotificationAsRead(notification.id);
-    final isIncomingRequest = notification.type == 'friend_request_received';
-    final peer = isIncomingRequest ? request.requester : request.addressee;
-    final isAlreadyFriend =
-        _friends.any((friend) => friend.userID == peer.userID);
-    final showChatButton = isAlreadyFriend ||
-        notification.isAcceptedRequest ||
-        request.status == 'accepted';
-
-    await navigator.push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => FriendRequestProfileScreen(
-          request: request,
-          title: peer.displayName.trim().isEmpty
-              ? peer.username
-              : peer.displayName.trim(),
-          isIncomingRequest: isIncomingRequest,
-          showChatButton: showChatButton,
-          onAcceptRequest: () => _respondToRequest(notification, 'accept'),
-          onDeclineRequest: () => _respondToRequest(notification, 'decline'),
-          onOpenChat: () => _openOrCreateConversation(
-            userID: peer.userID,
-            title: peer.displayName.trim().isEmpty
-                ? peer.username
-                : peer.displayName.trim(),
-            subtitle:
-                peer.city.trim().isEmpty ? '@${peer.username}' : peer.city,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<bool> _respondToRequest(
-    FriendNotificationRecord notification,
-    String action,
-  ) async {
-    final token = appSession.token;
-    final request = notification.friendRequest;
-    if (token == null || token.isEmpty || request == null) {
-      return false;
-    }
-    final messenger = ScaffoldMessenger.of(context);
-
-    try {
-      await _friendsApi.respondToRequest(
-        token: token,
-        requestID: request.id,
-        action: action,
-      );
-      await _loadHomeData();
-      if (!mounted) return false;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            action == 'accept'
-                ? 'You are now connected with @${request.requester.username}.'
-                : 'Friend request declined.',
-          ),
-        ),
-      );
-      return true;
-    } catch (error) {
-      if (!mounted) return false;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('HttpException: ', '')),
-        ),
-      );
-      return false;
-    }
-  }
-
-  Future<void> _markNotificationAsRead(String notificationID) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      return;
-    }
-
-    final now = DateTime.now();
-    try {
-      await _friendsApi.markNotificationRead(
-        token: token,
-        notificationID: notificationID,
-      );
-      if (!mounted) return;
-      setState(() {
-        for (var index = 0; index < _notifications.length; index++) {
-          final current = _notifications[index];
-          if (current.id == notificationID && current.readAt == null) {
-            _notifications[index] = current.copyWith(readAt: now);
-            break;
-          }
-        }
-      });
-    } catch (_) {
-      // Keep the current list state if the read update fails.
-    }
-  }
 
   Future<void> _openSearchResult(FriendSearchResult result) async {
     if (result.connectionStatus == FriendConnectionStatus.friends) {
@@ -566,10 +383,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
     return items;
   }
 
-  int get _unreadNotificationCount => _notifications
-      .where((notification) => notification.readAt == null)
-      .length;
-
   @override
   Widget build(BuildContext context) {
     final searchActive = _searchQuery.trim().isNotEmpty;
@@ -579,12 +392,10 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
       isSearching: _isSearching,
       errorMessage: _errorMessage,
       searchMessage: _searchMessage,
-      unreadNotificationCount: _unreadNotificationCount,
       searchController: _searchController,
       searchQuery: _searchQuery,
       searchResults: _searchResults,
       friendItems: _friendItems,
-      onOpenNotifications: _openNotifications,
       onRefresh: _loadHomeData,
       onSearchChanged: _scheduleSearch,
       onSearchSubmitted: _submitSearch,
@@ -617,12 +428,10 @@ class _UnifiedInboxContent extends StatelessWidget {
     required this.isSearching,
     required this.errorMessage,
     required this.searchMessage,
-    required this.unreadNotificationCount,
     required this.searchController,
     required this.searchQuery,
     required this.searchResults,
     required this.friendItems,
-    required this.onOpenNotifications,
     required this.onRefresh,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
@@ -638,12 +447,10 @@ class _UnifiedInboxContent extends StatelessWidget {
   final bool searchActive;
   final String? errorMessage;
   final String? searchMessage;
-  final int unreadNotificationCount;
   final TextEditingController searchController;
   final String searchQuery;
   final List<FriendSearchResult> searchResults;
   final List<_FriendListItem> friendItems;
-  final VoidCallback onOpenNotifications;
   final Future<void> Function() onRefresh;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
@@ -673,10 +480,6 @@ class _UnifiedInboxContent extends StatelessWidget {
                     letterSpacing: -0.8,
                   ),
                 ),
-              ),
-              _NotificationButton(
-                unreadCount: unreadNotificationCount,
-                onTap: onOpenNotifications,
               ),
             ],
           ),
@@ -802,40 +605,6 @@ class _UnifiedInboxContent extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
         ],
       ],
-    );
-  }
-}
-
-class _NotificationButton extends StatelessWidget {
-  const _NotificationButton({
-    required this.unreadCount,
-    required this.onTap,
-  });
-
-  final int unreadCount;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onTap,
-      icon: Badge(
-        isLabelVisible: unreadCount > 0,
-        label: Text(unreadCount > 9 ? '9+' : '$unreadCount'),
-        child: const Icon(Icons.notifications_none_rounded),
-      ),
-      style: IconButton.styleFrom(
-        backgroundColor: AppColors.surface,
-        foregroundColor: AppColors.textPrimary,
-        minimumSize: const Size(48, 48),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        side: BorderSide(
-          color: AppColors.border.withValues(alpha: 0.45),
-          width: 0.8,
-        ),
-      ),
     );
   }
 }

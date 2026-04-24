@@ -7,13 +7,11 @@ import '../features/chat/presentation/chat_conversation_screen.dart';
 import '../features/chat/presentation/chat_home_screen.dart';
 import '../features/home/presentation/home_shell_screen.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
-import '../features/sports/presentation/sports_selection_screen.dart';
 
 enum AppRoute {
   welcome('/'),
   signUp('/sign-up'),
   login('/login'),
-  sportsSelection('/sports-selection'),
   profileSetup('/profile-setup'),
   appHome('/home'),
   chatConversation('/chat-conversation'),
@@ -48,17 +46,9 @@ class AppRouter {
           builder: (_) => LoginScreen(args: loginArgs),
           settings: settings,
         );
-      case '/sports-selection':
-        return _buildRoute<void>(
-          builder: (_) => const SportsSelectionScreen(),
-          settings: settings,
-        );
       case '/profile-setup':
-        final selectedSports = settings.arguments is List<String>
-            ? settings.arguments! as List<String>
-            : const <String>[];
         return _buildRoute<void>(
-          builder: (_) => ProfileSetupScreen(selectedSports: selectedSports),
+          builder: (_) => const ProfileSetupScreen(),
           settings: settings,
         );
       case '/home':

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../chat/data/chat_unread_controller.dart';
 import '../../chat/presentation/chat_home_screen.dart';
+import '../../feed/presentation/news_feed_screen.dart';
 import '../../profile/presentation/profile_home_screen.dart';
 
 class HomeShellArgs {
@@ -26,7 +27,7 @@ class HomeShellScreen extends StatefulWidget {
 }
 
 class _HomeShellScreenState extends State<HomeShellScreen> {
-  late int _currentIndex = widget.args.initialTabIndex.clamp(0, 1);
+  late int _currentIndex = widget.args.initialTabIndex.clamp(0, 2);
 
   @override
   void initState() {
@@ -37,6 +38,7 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
+      const NewsFeedScreen(),
       const ChatHomeScreen(isEmbedded: true),
       const ProfileHomeScreen(),
     ];
@@ -65,24 +67,36 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
           child: Row(
             children: [
               Expanded(
+                child: _BottomNavItem(
+                  label: 'Feed',
+                  selected: _currentIndex == 0,
+                  icon: const Icon(Icons.grid_view_rounded),
+                  onTap: () {
+                    setState(() {
+                      _currentIndex = 0;
+                    });
+                  },
+                ),
+              ),
+              Expanded(
                 child: AnimatedBuilder(
                   animation: chatUnreadController,
                   builder: (context, _) {
                     return _BottomNavItem(
                       label: 'Chats',
-                      selected: _currentIndex == 0,
+                      selected: _currentIndex == 1,
                       icon: Badge(
                         isLabelVisible: chatUnreadController.hasUnread,
                         label: Text(chatUnreadController.badgeLabel),
                         child: Icon(
-                          _currentIndex == 0
+                          _currentIndex == 1
                               ? Icons.chat_bubble_outline_rounded
                               : Icons.chat_bubble_outline_rounded,
                         ),
                       ),
                       onTap: () async {
                         setState(() {
-                          _currentIndex = 0;
+                          _currentIndex = 1;
                         });
                         await chatUnreadController.refresh();
                       },
@@ -93,11 +107,11 @@ class _HomeShellScreenState extends State<HomeShellScreen> {
               Expanded(
                 child: _BottomNavItem(
                   label: 'Profile',
-                  selected: _currentIndex == 1,
+                  selected: _currentIndex == 2,
                   icon: const Icon(Icons.person_outline_rounded),
                   onTap: () {
                     setState(() {
-                      _currentIndex = 1;
+                      _currentIndex = 2;
                     });
                   },
                 ),

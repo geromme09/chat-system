@@ -25,22 +25,14 @@ type profileModel struct {
 	AvatarURL    string
 	City         string
 	Country      string
-	SkillLevel   string
+	Gender       string
+	HobbiesText  string
 	Visible      bool
 	LastModified time.Time
 }
 
 func (profileModel) TableName() string {
 	return "user_profiles"
-}
-
-type userSportModel struct {
-	UserID    string `gorm:"primaryKey"`
-	SportName string `gorm:"primaryKey"`
-}
-
-func (userSportModel) TableName() string {
-	return "user_sports"
 }
 
 type friendshipModel struct {

@@ -6,6 +6,10 @@ This document should be used together with [go-backend-skill.md](/Users/gerommeb
 - Keep handlers thin and delegate business logic to app services.
 - Keep repository logic in `infra`.
 - Use GORM for Postgres-backed repository implementations while keeping domain contracts independent from ORM structs where practical.
+- Favor simple indexed Postgres queries and avoid adding complexity unless the use case truly needs it.
+- Prefer cursor/seek pagination for ordered feeds and timelines.
+- Update indexes in the same change whenever a new query pattern is introduced.
+- Fetch only the columns needed by the current use case.
 - Use `context.Context` in request and async paths.
 - Prefer constructor-based dependency injection over globals.
 - Use interfaces only at meaningful boundaries.

@@ -8,8 +8,8 @@ class UpdateProfileRequest {
     required this.bio,
     required this.city,
     required this.country,
-    required this.sports,
-    required this.skillLevel,
+    required this.gender,
+    required this.hobbiesText,
     required this.visible,
     this.avatarFileName = '',
   });
@@ -18,8 +18,8 @@ class UpdateProfileRequest {
   final String bio;
   final String city;
   final String country;
-  final List<String> sports;
-  final String skillLevel;
+  final String gender;
+  final String hobbiesText;
   final bool visible;
   final String avatarFileName;
 
@@ -30,10 +30,54 @@ class UpdateProfileRequest {
       'avatar_file_name': avatarFileName,
       'city': city,
       'country': country,
-      'sports': sports,
-      'skill_level': skillLevel,
+      'gender': gender,
+      'hobbies_text': hobbiesText,
       'visible': visible,
     };
+  }
+}
+
+class PublicProfile {
+  const PublicProfile({
+    required this.userID,
+    required this.username,
+    required this.displayName,
+    required this.avatarUrl,
+    required this.city,
+    required this.country,
+    required this.bio,
+    required this.gender,
+    required this.hobbiesText,
+    required this.visible,
+    required this.connectionStatus,
+  });
+
+  final String userID;
+  final String username;
+  final String displayName;
+  final String avatarUrl;
+  final String city;
+  final String country;
+  final String bio;
+  final String gender;
+  final String hobbiesText;
+  final bool visible;
+  final String connectionStatus;
+
+  factory PublicProfile.fromJson(Map<String, dynamic> json) {
+    return PublicProfile(
+      userID: json['user_id'] as String? ?? '',
+      username: json['username'] as String? ?? '',
+      displayName: json['display_name'] as String? ?? '',
+      avatarUrl: json['avatar_url'] as String? ?? '',
+      city: json['city'] as String? ?? '',
+      country: json['country'] as String? ?? '',
+      bio: json['bio'] as String? ?? '',
+      gender: json['gender'] as String? ?? '',
+      hobbiesText: json['hobbies_text'] as String? ?? '',
+      visible: json['visible'] as bool? ?? true,
+      connectionStatus: json['connection_status'] as String? ?? '',
+    );
   }
 }
 
@@ -60,5 +104,22 @@ class ProfileApi {
     }
 
     return SessionProfile.fromJson(data);
+  }
+
+  Future<PublicProfile> getProfile({
+    required String token,
+    required String userID,
+  }) async {
+    final response = await _client.get(
+      '/api/v1/profile/$userID',
+      authToken: token,
+    );
+
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('Missing profile payload');
+    }
+
+    return PublicProfile.fromJson(data);
   }
 }

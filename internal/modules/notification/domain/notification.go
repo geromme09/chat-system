@@ -9,6 +9,8 @@ const (
 	TypeFriendRequestReceived = "friend_request_received"
 	TypeFriendRequestAccepted = "friend_request_accepted"
 	TypeFriendRequestDeclined = "friend_request_declined"
+	TypeFeedPostComment       = "feed_post_comment"
+	TypeFeedCommentReply      = "feed_comment_reply"
 
 	EventNotificationCreated = "notification.created"
 )

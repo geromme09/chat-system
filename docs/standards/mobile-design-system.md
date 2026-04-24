@@ -9,7 +9,7 @@ The product should feel:
 - mobile-first
 - clean and minimal
 - youthful without looking loud
-- social and sporty, not romantic or overly corporate
+- social and confident, not romantic or overly corporate
 - confident, simple, and easy to scan
 
 Reference tone:
@@ -152,15 +152,15 @@ Rules:
 ### Future discovery and challenge screens
 - keep the same base palette
 - use `coral` or `softBlue` for active status or selected states
-- do not overload the UI with neon sports styling
+- do not overload the UI with neon game or combat styling
 
 ## Product-specific tone
 This app is about:
-- meeting real players
+- meeting real people
 - chatting
-- playing sports
-- recording outcomes
-- building rank over time
+- building friendships
+- sharing identity
+- staying connected before and after gameplay exists
 
 The UI should communicate:
 - trust
@@ -179,4 +179,4 @@ Before shipping a new screen, check:
 - does it keep the spacing rhythm?
 - is there one clear primary action?
 - does the page feel calm and confident instead of crowded?
-- does it match the social sports tone of the product?
+- does it match the FaceOff Social tone of the product?

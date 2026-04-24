@@ -65,7 +65,8 @@ services:
       REDIS_MIN_IDLE_CONNS: 2
       RATE_LIMIT_REQUESTS_PER_SECOND: 5
       RATE_LIMIT_BURST: 15
-      STORAGE_BASE_URL: https://cdn.example.com
+      STORAGE_BASE_URL: http://localhost:8080
+      STORAGE_LOCAL_DIR: /app/var/storage
     ports:
       - "8080:8080"
     depends_on:

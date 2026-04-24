@@ -4,5 +4,5 @@
 Postgres will be the primary persistent data store.
 
 ## Why
-- relational consistency fits users, friendships, chats, challenges, and rankings
-- query flexibility is valuable for leaderboard and social graph features
+- relational consistency fits users, profiles, friendships, notifications, and chat
+- query flexibility is valuable for inbox views, social graph lookups, and conversation data

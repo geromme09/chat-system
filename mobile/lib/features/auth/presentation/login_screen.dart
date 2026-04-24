@@ -34,6 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _isPasswordVisible = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -81,17 +82,15 @@ class _LoginScreenState extends State<LoginScreen> {
         token: result.token,
         userID: result.userID,
         profile: result.profile,
+        profileComplete: result.profileComplete,
       );
 
       if (!mounted) return;
 
-      final hasFinishedProfile = result.profile.sports.isNotEmpty &&
-          result.profile.displayName.trim().isNotEmpty;
-
       Navigator.of(context).pushNamedAndRemoveUntil(
-        hasFinishedProfile
+        result.profileComplete
             ? AppRoute.appHome.path
-            : AppRoute.sportsSelection.path,
+            : AppRoute.profileSetup.path,
         (_) => false,
       );
     } catch (error) {
@@ -129,7 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'Pick up where you left off with your chats, teammates, and games.',
+            'Pick up where you left off with your chats, friends, and profile.',
             style: textTheme.bodyMedium,
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -159,10 +158,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: AppSpacing.md),
                   TextFormField(
                     controller: _passwordController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Password',
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible;
+                          });
+                        },
+                        icon: Icon(
+                          _isPasswordVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                      ),
                     ),
-                    obscureText: true,
+                    obscureText: !_isPasswordVisible,
                     textInputAction: TextInputAction.done,
                     autofillHints: const [AutofillHints.password],
                     validator: (value) {

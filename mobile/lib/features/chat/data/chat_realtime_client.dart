@@ -20,6 +20,8 @@ class ChatRealtimeEvent {
     required this.userID,
     required this.isOnline,
     required this.notification,
+    required this.lastReadMessageID,
+    required this.readAt,
     this.message,
   });
 
@@ -28,16 +30,23 @@ class ChatRealtimeEvent {
   final String userID;
   final bool isOnline;
   final Map<String, dynamic>? notification;
+  final String lastReadMessageID;
+  final DateTime? readAt;
   final ChatMessage? message;
 
   factory ChatRealtimeEvent.fromJson(Map<String, dynamic> json) {
     return ChatRealtimeEvent(
       event: json[ChatRealtimeFields.event] as String? ?? '',
       conversationID: json[ChatRealtimeFields.conversationID] as String? ?? '',
-      userID: json[ChatRealtimeFields.userID] as String? ?? '',
+      userID: (json[ChatRealtimeFields.userID] as String? ?? '').isNotEmpty
+          ? json[ChatRealtimeFields.userID] as String? ?? ''
+          : json[ChatRealtimeFields.readerUserID] as String? ?? '',
       isOnline: json[ChatRealtimeFields.isOnline] as bool? ?? false,
       notification:
           json[ChatRealtimeFields.notification] as Map<String, dynamic>?,
+      lastReadMessageID:
+          json[ChatRealtimeFields.lastReadMessageID] as String? ?? '',
+      readAt: parseChatDateTime(json[ChatRealtimeFields.readAt]),
       message: (json[ChatRealtimeFields.message] as Map<String, dynamic>?)
           ?.let(ChatMessage.fromJson),
     );

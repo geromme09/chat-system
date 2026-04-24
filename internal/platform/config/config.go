@@ -27,6 +27,7 @@ type Config struct {
 	RedisPoolSize          int
 	RedisMinIdleConns      int
 	StorageBaseURL         string
+	StorageLocalDir        string
 	RateLimitRequestsPerS  int
 	RateLimitBurst         int
 }
@@ -55,7 +56,8 @@ func Load() Config {
 		RedisDB:                getEnvInt("REDIS_DB", 0),
 		RedisPoolSize:          getEnvInt("REDIS_POOL_SIZE", 10),
 		RedisMinIdleConns:      getEnvInt("REDIS_MIN_IDLE_CONNS", 2),
-		StorageBaseURL:         getEnv("STORAGE_BASE_URL", "https://cdn.example.com"),
+		StorageBaseURL:         getEnv("STORAGE_BASE_URL", "http://localhost:8080"),
+		StorageLocalDir:        getEnv("STORAGE_LOCAL_DIR", "var/storage"),
 		RateLimitRequestsPerS:  getEnvInt("RATE_LIMIT_REQUESTS_PER_SECOND", 5),
 		RateLimitBurst:         getEnvInt("RATE_LIMIT_BURST", 15),
 	}

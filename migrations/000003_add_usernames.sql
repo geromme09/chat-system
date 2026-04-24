@@ -1,5 +1,5 @@
 -- +goose Up
-ALTER TABLE users ADD COLUMN username TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
 
 WITH normalized AS (
     SELECT
@@ -36,10 +36,21 @@ WHERE users.id = ranked.id;
 ALTER TABLE users
     ALTER COLUMN username SET NOT NULL;
 
-ALTER TABLE users
-    ADD CONSTRAINT users_username_unique UNIQUE (username);
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_username_unique'
+    ) THEN
+        ALTER TABLE users
+            ADD CONSTRAINT users_username_unique UNIQUE (username);
+    END IF;
+END $$;
+-- +goose StatementEnd
 
-CREATE INDEX idx_users_username ON users (username);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 
 -- +goose Down
 DROP INDEX IF EXISTS idx_users_username;

@@ -1,15 +1,7 @@
 # Discovery Design
 
-Discovery is intentionally deferred until signup, profile, friend connections, and chat foundations are stable.
+This document is now a legacy placeholder from the pre-pivot scope.
 
-Planned responsibilities:
-- sport-aware nearby user browsing
-- privacy-safe distance display
-- like/pass decisions
-- mutual match creation
-- match-based chat eligibility
+Discovery is not part of the active FaceOff Social MVP.
 
-Data ownership:
-- `discovery_preferences`
-- `swipe_actions`
-- `matches`
+If discovery returns in the future, it should be redesigned around the current social-plus-game split instead of reviving the old sports-specific data model.

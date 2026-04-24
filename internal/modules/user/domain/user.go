@@ -39,8 +39,8 @@ type Profile struct {
 	AvatarURL    string    `json:"avatar_url"`
 	City         string    `json:"city"`
 	Country      string    `json:"country"`
-	Sports       []string  `json:"sports"`
-	SkillLevel   string    `json:"skill_level"`
+	Gender       string    `json:"gender"`
+	HobbiesText  string    `json:"hobbies_text"`
 	Visible      bool      `json:"visible"`
 	LastModified time.Time `json:"last_modified"`
 }
@@ -51,6 +51,20 @@ type SearchResult struct {
 	DisplayName      string `json:"display_name"`
 	AvatarURL        string `json:"avatar_url"`
 	City             string `json:"city"`
+	ConnectionStatus string `json:"connection_status"`
+}
+
+type PublicProfile struct {
+	UserID           string `json:"user_id"`
+	Username         string `json:"username"`
+	DisplayName      string `json:"display_name"`
+	AvatarURL        string `json:"avatar_url"`
+	City             string `json:"city"`
+	Country          string `json:"country"`
+	Bio              string `json:"bio"`
+	Gender           string `json:"gender"`
+	HobbiesText      string `json:"hobbies_text"`
+	Visible          bool   `json:"visible"`
 	ConnectionStatus string `json:"connection_status"`
 }
 
@@ -88,6 +102,7 @@ type Repository interface {
 	GetUser(ctx context.Context, userID string) (User, error)
 	UpsertProfile(ctx context.Context, profile Profile) error
 	GetProfile(ctx context.Context, userID string) (Profile, error)
+	GetPublicProfile(ctx context.Context, actorUserID, targetUserID string) (PublicProfile, error)
 	SearchUsers(ctx context.Context, query string, limit int, excludeUserID string) ([]SearchResult, error)
 	GetFriendshipBetween(ctx context.Context, userAID, userBID string) (FriendRequest, error)
 	CreateFriendship(ctx context.Context, friendship FriendRequest) error

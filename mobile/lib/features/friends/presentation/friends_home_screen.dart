@@ -9,9 +9,7 @@ import '../../chat/data/chat_api.dart';
 import '../../chat/data/chat_unread_controller.dart';
 import '../../chat/presentation/chat_conversation_screen.dart';
 import '../data/friends_api.dart';
-import 'friend_request_profile_screen.dart';
 import 'friend_username_search_screen.dart';
-import 'notifications_screen.dart';
 
 class FriendsHomeScreen extends StatefulWidget {
   const FriendsHomeScreen({
@@ -32,17 +30,11 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
   final ChatApi _chatApi = ChatApi();
   final ScrollController _scrollController = ScrollController();
 
-  final List<FriendNotificationRecord> _notifications =
-      <FriendNotificationRecord>[];
   final List<FriendSummary> _friends = <FriendSummary>[];
 
-  bool _isLoadingNotifications = true;
   bool _isLoadingFriends = true;
-  bool _isLoadingMoreNotifications = false;
   bool _isLoadingMoreFriends = false;
-  String? _notificationsMessage;
   String? _friendsMessage;
-  int? _nextNotificationsPage;
   int? _nextFriendsPage;
 
   @override
@@ -61,10 +53,7 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
   }
 
   Future<void> _loadScreenData() async {
-    await Future.wait<void>([
-      _loadNotifications(),
-      _loadFriends(),
-    ]);
+    await _loadFriends();
   }
 
   void _handleScroll() {
@@ -75,63 +64,6 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
     final position = _scrollController.position;
     if (position.pixels >= position.maxScrollExtent - 180) {
       _loadFriends(loadMore: true);
-    }
-  }
-
-  Future<void> _loadNotifications({bool loadMore = false}) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingNotifications = false;
-        _notificationsMessage = 'Please sign in again to load notifications.';
-      });
-      return;
-    }
-
-    if (loadMore &&
-        (_isLoadingMoreNotifications || _nextNotificationsPage == null)) {
-      return;
-    }
-
-    setState(() {
-      if (loadMore) {
-        _isLoadingMoreNotifications = true;
-      } else {
-        _isLoadingNotifications = true;
-        _notificationsMessage = null;
-      }
-    });
-
-    try {
-      final page = await _friendsApi.listNotifications(
-        token: token,
-        page: loadMore ? _nextNotificationsPage! : 1,
-        limit: _pageSize,
-      );
-      if (!mounted) return;
-      setState(() {
-        if (loadMore) {
-          _notifications.addAll(page.items);
-        } else {
-          _notifications
-            ..clear()
-            ..addAll(page.items);
-        }
-        _nextNotificationsPage = page.nextPage;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _notificationsMessage = 'Unable to load notifications right now.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingNotifications = false;
-          _isLoadingMoreNotifications = false;
-        });
-      }
     }
   }
 
@@ -204,112 +136,6 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
     await _openSearch();
   }
 
-  Future<void> _openNotifications() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => NotificationsScreen(
-          notifications: _notifications,
-          isLoading: _isLoadingNotifications,
-          isLoadingMore: _isLoadingMoreNotifications,
-          hasMore: _nextNotificationsPage != null,
-          message: _notificationsMessage,
-          onOpenNotification: _openNotification,
-          onLoadMore: () => _loadNotifications(loadMore: true),
-        ),
-      ),
-    );
-    await _loadNotifications();
-  }
-
-  Future<void> _openNotification(FriendNotificationRecord notification) async {
-    final request = notification.friendRequest;
-    if (request == null || !notification.isPendingIncomingRequest) {
-      return;
-    }
-    final navigator = Navigator.of(context);
-
-    final token = appSession.token;
-    if (token != null && token.isNotEmpty) {
-      await _friendsApi.markNotificationRead(
-        token: token,
-        notificationID: notification.id,
-      );
-    }
-
-    final isIncomingRequest = notification.type == 'friend_request_received';
-    final peer = isIncomingRequest ? request.requester : request.addressee;
-    final isAlreadyFriend =
-        _friends.any((friend) => friend.userID == peer.userID);
-    final showChatButton = isAlreadyFriend ||
-        notification.isAcceptedRequest ||
-        request.status == 'accepted';
-
-    await navigator.push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => FriendRequestProfileScreen(
-          request: request,
-          title: peer.displayName.trim().isEmpty
-              ? peer.username
-              : peer.displayName.trim(),
-          isIncomingRequest: isIncomingRequest,
-          showChatButton: showChatButton,
-          onAcceptRequest: () => _respondToRequest(request, 'accept'),
-          onDeclineRequest: () => _respondToRequest(request, 'decline'),
-          onOpenChat: () => _openChatWithFriend(
-            _friends.firstWhere(
-              (friend) => friend.userID == peer.userID,
-              orElse: () => FriendSummary(
-                userID: peer.userID,
-                username: peer.username,
-                displayName: peer.displayName,
-                avatarUrl: peer.avatarUrl,
-                city: peer.city,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<bool> _respondToRequest(
-    FriendRequestRecord request,
-    String action,
-  ) async {
-    final token = appSession.token;
-    if (token == null || token.isEmpty) {
-      return false;
-    }
-
-    try {
-      await _friendsApi.respondToRequest(
-        token: token,
-        requestID: request.id,
-        action: action,
-      );
-      await _loadScreenData();
-      if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            action == 'accept'
-                ? 'You are now connected with @${request.requester.username}.'
-                : 'Friend request declined.',
-          ),
-        ),
-      );
-      return true;
-    } catch (error) {
-      if (!mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('HttpException: ', '')),
-        ),
-      );
-      return false;
-    }
-  }
-
   Future<void> _openChatWithFriend(FriendSummary friend) async {
     final token = appSession.token;
     if (token == null || token.isEmpty) {
@@ -351,8 +177,6 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount =
-        _notifications.where((item) => item.readAt == null).length;
     final topPadding = widget.isEmbedded ? AppSpacing.md : AppSpacing.sm;
 
     final body = Stack(
@@ -370,10 +194,7 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
             ),
             children: [
               _FriendsHeader(
-                unreadCount: unreadCount,
-                isLoadingNotifications: _isLoadingNotifications,
-                onOpenNotifications: _openNotifications,
-              ),
+                ),
               const SizedBox(height: AppSpacing.lg),
               _SearchBar(onTap: _openSearch),
               const SizedBox(height: AppSpacing.xl),
@@ -415,15 +236,7 @@ class _FriendsHomeScreenState extends State<FriendsHomeScreen> {
 }
 
 class _FriendsHeader extends StatelessWidget {
-  const _FriendsHeader({
-    required this.unreadCount,
-    required this.isLoadingNotifications,
-    required this.onOpenNotifications,
-  });
-
-  final int unreadCount;
-  final bool isLoadingNotifications;
-  final VoidCallback onOpenNotifications;
+  const _FriendsHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -438,35 +251,6 @@ class _FriendsHeader extends StatelessWidget {
               fontSize: 30,
               letterSpacing: -0.8,
             ),
-          ),
-        ),
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x120F172A),
-                blurRadius: 18,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
-          child: IconButton(
-            onPressed: isLoadingNotifications ? null : onOpenNotifications,
-            icon: isLoadingNotifications
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  )
-                : Badge(
-                    isLabelVisible: unreadCount > 0,
-                    label: Text(unreadCount > 9 ? '9+' : '$unreadCount'),
-                    child: const Icon(Icons.notifications_none_rounded),
-                  ),
           ),
         ),
       ],

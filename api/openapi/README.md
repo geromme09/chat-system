@@ -6,15 +6,14 @@ Current API groups:
 - `/api/v1/auth`
 - `/api/v1/profile`
 - `/api/v1/friends`
+- `/api/v1/notifications`
 - `/api/v1/chat`
-- `/api/v1/discovery`
-- `/api/v1/challenges`
-- `/api/v1/feed`
-- `/api/v1/rankings`
+- `/api/v1/users`
 
 The first implemented slice covers:
 - signup
 - login
 - profile read/update
+- friend requests and notifications
 - chat conversation create/list
 - chat message create/list

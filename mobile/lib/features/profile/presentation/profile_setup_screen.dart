@@ -8,24 +8,26 @@ import '../../../core/widgets/section_card.dart';
 import '../data/profile_api.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({
-    super.key,
-    required this.selectedSports,
-  });
-
-  final List<String> selectedSports;
+  const ProfileSetupScreen({super.key});
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
+  static const List<String> _genderOptions = <String>[
+    '',
+    'Woman',
+    'Man',
+    'Non-binary',
+    'Prefer not to say',
+  ];
+
   final ProfileApi _profileApi = ProfileApi();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _hobbiesController = TextEditingController();
 
-  final _bioController = TextEditingController(
-    text: 'Weekend player looking for friendly but competitive runs.',
-  );
-
+  String _selectedGender = '';
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -34,14 +36,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     super.initState();
     final currentProfile = appSession.profile;
 
-    if (currentProfile != null && currentProfile.bio.trim().isNotEmpty) {
-      _bioController.text = currentProfile.bio;
+    if (currentProfile == null) {
+      return;
     }
+
+    _bioController.text = currentProfile.bio;
+    _hobbiesController.text = currentProfile.hobbiesText;
+    _selectedGender = currentProfile.gender;
   }
 
   @override
   void dispose() {
     _bioController.dispose();
+    _hobbiesController.dispose();
     super.dispose();
   }
 
@@ -51,7 +58,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
     if (token == null || currentProfile == null) {
       setState(() {
-        _errorMessage = 'Your session expired. Please sign up again.';
+        _errorMessage = 'Your session expired. Please sign in again.';
       });
       return;
     }
@@ -69,13 +76,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           bio: _bioController.text.trim(),
           city: currentProfile.city,
           country: currentProfile.country,
-          sports: widget.selectedSports,
-          skillLevel: currentProfile.skillLevel,
+          gender: _selectedGender,
+          hobbiesText: _hobbiesController.text.trim(),
           visible: currentProfile.visible,
         ),
       );
 
-      appSession.updateProfile(updatedProfile);
+      appSession.updateProfile(updatedProfile, profileComplete: true);
       appSession.clear();
 
       if (!mounted) return;
@@ -113,79 +120,61 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           AppSpacing.xl,
         ),
         children: [
-          /// HEADER
           Text(
-            'Shape your player card',
+            'Finish your profile',
             style: textTheme.headlineMedium,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'This is what people see before they connect or play.',
+            'Add a little context so your account feels complete before you log in.',
             style: textTheme.bodyMedium,
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          /// PROFILE CARD
           SectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Sports',
-                  style: textTheme.titleLarge,
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedGender,
+                  decoration: const InputDecoration(
+                    labelText: 'Gender (optional)',
+                  ),
+                  items: _genderOptions.map((option) {
+                    return DropdownMenuItem<String>(
+                      value: option,
+                      child: Text(
+                        option.isEmpty ? 'Prefer not to share' : option,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedGender = value ?? '';
+                    });
+                  },
                 ),
                 const SizedBox(height: AppSpacing.md),
-
-                /// SPORTS CHIPS
-                if (widget.selectedSports.isEmpty)
-                  Text(
-                    'You can add sports later anytime.',
-                    style: textTheme.bodyMedium,
-                  )
-                else
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: widget.selectedSports.map((sport) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(
-                            AppRadius.sm,
-                          ),
-                          border: Border.all(
-                            color: AppColors.border,
-                          ),
-                        ),
-                        child: Text(
-                          sport,
-                          style: textTheme.bodyMedium,
-                        ),
-                      );
-                    }).toList(),
+                TextField(
+                  controller: _hobbiesController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Hobbies or interests (optional)',
+                    hintText: 'Music, anime, coffee runs, arcades',
                   ),
-
-                const SizedBox(height: AppSpacing.lg),
-
-                /// BIO
+                ),
+                const SizedBox(height: AppSpacing.md),
                 TextField(
                   controller: _bioController,
                   maxLines: 4,
                   decoration: const InputDecoration(
                     labelText: 'Short bio',
+                    hintText: 'Tell friends a little about yourself.',
                     alignLabelWithHint: true,
                   ),
                 ),
               ],
             ),
           ),
-
-          /// ERROR STATE
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.md),
             Text(
@@ -195,10 +184,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
             ),
           ],
-
           const SizedBox(height: AppSpacing.lg),
-
-          /// CTA
           FilledButton(
             onPressed: _isSubmitting ? null : _finishSetup,
             child: Text(

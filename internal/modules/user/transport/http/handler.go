@@ -26,6 +26,10 @@ type UpdateMeHandler struct {
 	service *app.Service
 }
 
+type GetProfileHandler struct {
+	service *app.Service
+}
+
 type SearchUsersHandler struct {
 	service *app.Service
 }
@@ -61,6 +65,10 @@ func NewGetMeHandler(service *app.Service) *GetMeHandler {
 
 func NewUpdateMeHandler(service *app.Service) *UpdateMeHandler {
 	return &UpdateMeHandler{service: service}
+}
+
+func NewGetProfileHandler(service *app.Service) *GetProfileHandler {
+	return &GetProfileHandler{service: service}
 }
 
 func NewSearchUsersHandler(service *app.Service) *SearchUsersHandler {
@@ -177,6 +185,34 @@ func (h *UpdateMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	}
 
 	profile, err := h.service.UpdateProfile(ctx.Request.Context(), userID, input)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(profile, nil)
+}
+
+// Serve returns a public profile for the requested user.
+// @Summary Get public profile
+// @Tags profile
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Router /api/v1/profile/{userID} [get]
+func (h *GetProfileHandler) Serve(ctx httpx.Context) response.ApiResponse {
+	actorUserID, ok := ctx.UserID()
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	path := strings.TrimPrefix(ctx.Request.URL.Path, "/api/v1/profile/")
+	targetUserID := strings.Trim(path, "/")
+	if targetUserID == "" || targetUserID == "me" || strings.Contains(targetUserID, "/") {
+		return response.NotFound("resource not found")
+	}
+
+	profile, err := h.service.GetPublicProfile(ctx.Request.Context(), actorUserID, targetUserID)
 	if err != nil {
 		return response.BadRequest(err)
 	}

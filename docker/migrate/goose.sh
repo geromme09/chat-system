@@ -21,23 +21,18 @@ shift || true
 bootstrap_goose_version_table() {
   legacy_exists="$(psql "${GOOSE_DBSTRING}" -tA -c "SELECT to_regclass('public.schema_migrations') IS NOT NULL;")"
   goose_exists="$(psql "${GOOSE_DBSTRING}" -tA -c "SELECT to_regclass('public.goose_db_version') IS NOT NULL;")"
+  users_exists="$(psql "${GOOSE_DBSTRING}" -tA -c "SELECT to_regclass('public.users') IS NOT NULL;")"
 
-  if [ "${legacy_exists}" != "t" ]; then
-    return
-  fi
-
-  legacy_count="$(psql "${GOOSE_DBSTRING}" -tA -c "
+  if [ "${legacy_exists}" = "t" ]; then
+    legacy_count="$(psql "${GOOSE_DBSTRING}" -tA -c "
     SELECT COUNT(*)
     FROM schema_migrations
     WHERE regexp_replace(version, '^([0-9]+).*', '\1') ~ '^[0-9]+$';
   ")"
 
-  if [ "${legacy_count}" = "0" ]; then
-    return
-  fi
-
-  echo "Bootstrapping goose version tracking from legacy schema_migrations..."
-  psql "${GOOSE_DBSTRING}" -v ON_ERROR_STOP=1 -c "
+    if [ "${legacy_count}" != "0" ]; then
+      echo "Bootstrapping goose version tracking from legacy schema_migrations..."
+      psql "${GOOSE_DBSTRING}" -v ON_ERROR_STOP=1 -c "
 CREATE TABLE IF NOT EXISTS goose_db_version (
     id BIGSERIAL PRIMARY KEY,
     version_id BIGINT NOT NULL,
@@ -56,6 +51,43 @@ WHERE regexp_replace(version, '^([0-9]+).*', '\1') ~ '^[0-9]+$'
   )
 ORDER BY 1;
 "
+      return
+    fi
+  fi
+
+  if [ "${goose_exists}" = "t" ]; then
+    goose_applied_count="$(psql "${GOOSE_DBSTRING}" -tA -c "
+      SELECT COUNT(*)
+      FROM goose_db_version
+      WHERE is_applied = TRUE;
+    ")"
+  else
+    goose_applied_count="0"
+  fi
+
+  if [ "${goose_applied_count}" = "0" ] && [ "${users_exists}" = "t" ]; then
+    echo "Bootstrapping goose version tracking from existing application tables..."
+    psql "${GOOSE_DBSTRING}" -v ON_ERROR_STOP=1 -c "
+CREATE TABLE IF NOT EXISTS goose_db_version (
+    id BIGSERIAL PRIMARY KEY,
+    version_id BIGINT NOT NULL,
+    is_applied BOOLEAN NOT NULL,
+    tstamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO goose_db_version (version_id, is_applied)
+SELECT 1, TRUE
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM goose_db_version
+    WHERE version_id = 1
+      AND is_applied = TRUE
+);
+"
+  fi
+
+  if [ "${goose_exists}" != "t" ]; then
+    return
+  fi
 }
 
 case "${command}" in
@@ -68,7 +100,7 @@ case "${command}" in
       sleep 2
     done
     bootstrap_goose_version_table
-    exec goose -dir "${GOOSE_MIGRATION_DIR}" "${command}" "${GOOSE_DRIVER}" "${GOOSE_DBSTRING}" "$@"
+    exec goose -dir "${GOOSE_MIGRATION_DIR}" "${command}" "$@"
     ;;
   *)
     exec goose "$command" "$@"

@@ -9,7 +9,7 @@ import (
 
 // @title Chat System API
 // @version 1.0
-// @description Mobile-first sports social app backend API.
+// @description FaceOff Social backend API for identity, friends, chat, and notifications.
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization

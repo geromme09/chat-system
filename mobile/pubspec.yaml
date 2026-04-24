@@ -1,5 +1,5 @@
 name: chat_system_mobile
-description: Mobile-first sports social app shell
+description: FaceOff Social mobile shell
 publish_to: "none"
 version: 0.1.0+1
 
@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  image_picker: ^1.2.0
   qr_flutter: ^4.1.0
 
 dev_dependencies:

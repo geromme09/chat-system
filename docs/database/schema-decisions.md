@@ -1,16 +1,24 @@
 # Schema Decisions
 
 ## Primary database
-Postgres is the long-term source of truth.
+Postgres is the source of truth for FaceOff Social.
 
-## Current implementation note
-The first runnable code path uses in-memory repositories for local development speed, but the schema has already been shaped through SQL migration files.
-
-## Design choices
-- user identity and profile are separated
-- sports are modeled as catalog/reference data with stable IDs in `sports`
-- user sport selection is modeled as a join to the sports catalog through `user_sports`
-- auth accounts and auth sessions are separated to support local and future social login
+## Current modeling choices
+- account identity lives in `users`
+- public social profile data lives in `user_profiles`
+- `users.profile_complete` is the gate for onboarding completion
+- optional social metadata such as `gender` and `hobbies_text` stays in `user_profiles`
+- friendships are modeled separately from notifications so request state and inbox state can evolve independently
 - chat separates conversations, participants, messages, and read tracking
-- ranking is modeled per user, sport, and geography scope
-- outbox events are first-class schema entities for future reliable event publishing
+- outbox events remain first-class infrastructure data for future reliable event publishing
+
+## Explicit non-goals for this schema
+The social database does not own:
+- sports catalogs
+- discovery swipes
+- match records
+- challenge records
+- rankings
+- fighter creation data
+
+Those concerns either belong to the removed pre-pivot scope or to the future game domain.

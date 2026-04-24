@@ -102,7 +102,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      'Recent requests and updates in one cleaner place.',
+                      'Replies, requests, and updates in one cleaner place.',
                       style: textTheme.bodyMedium?.copyWith(height: 1.45),
                     ),
                   ],
@@ -134,8 +134,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           else if (widget.notifications.isEmpty)
             const _NotificationEmptyState(
               title: 'No notifications yet',
-              subtitle:
-                  'Friend requests and accepted requests will appear here.',
+              subtitle: 'Friend requests and comment replies will appear here.',
             )
           else ...[
             if (todayNotifications.isNotEmpty) ...[
@@ -293,10 +292,11 @@ class _NotificationListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final request = notification.friendRequest;
+    final feedReply = notification.feedReply;
     final isIncoming = notification.isPendingIncomingRequest && request != null;
-    final senderCard = request == null
-        ? null
-        : (isIncoming ? request.requester : request.addressee);
+    final senderCard = request != null
+        ? (isIncoming ? request.requester : request.addressee)
+        : feedReply?.author;
     final title = notification.title.trim().isNotEmpty
         ? notification.title.trim()
         : senderCard == null
@@ -304,16 +304,23 @@ class _NotificationListTile extends StatelessWidget {
             : senderCard.displayName.trim().isEmpty
                 ? senderCard.username
                 : senderCard.displayName;
-    final subtitle = notification.body.trim().isEmpty
-        ? 'Friend Request'
-        : notification.body.trim();
+    final subtitle = notification.body.trim().isNotEmpty
+        ? notification.isFeedInteraction && senderCard != null
+            ? notification.isFeedPostComment
+                ? '$title commented on your post'
+                : '$title replied to your comment'
+            : notification.body.trim()
+        : notification.isFeedInteraction
+            ? notification.isFeedPostComment
+                ? 'Commented on your post'
+                : 'Replied to your comment'
+            : 'Friend Request';
     final isUnread = notification.readAt == null;
-    final isInteractive = isUnread && isIncoming;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: isInteractive ? () => onOpenNotification(notification) : null,
+        onTap: () => onOpenNotification(notification),
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: Ink(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -365,7 +372,14 @@ class _NotificationListTile extends StatelessWidget {
                     if (notification.createdAt != null) ...[
                       const SizedBox(height: AppSpacing.xs),
                       Text(
-                        _timeAgo(notification.createdAt!.toLocal()),
+                        notification.isFeedReply
+                            ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to open the post'
+                            : notification.isFeedPostComment
+                                ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to open the post'
+                                : notification.isPendingIncomingRequest
+                                    ? '${_timeAgo(notification.createdAt!.toLocal())} · Tap to review'
+                                    : _timeAgo(
+                                        notification.createdAt!.toLocal()),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: AppColors.textSecondary,
                             ),

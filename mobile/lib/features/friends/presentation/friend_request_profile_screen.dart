@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/brand_shell.dart';
 import '../../../core/widgets/section_card.dart';
+import '../data/friend_search_api.dart';
 import '../data/friends_api.dart';
+import 'friend_search_profile_screen.dart';
 
 class FriendRequestProfileScreen extends StatefulWidget {
   const FriendRequestProfileScreen({
@@ -142,14 +144,14 @@ class _FriendRequestProfileScreenState
                           borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         child: const Icon(
-                          Icons.sports_basketball_rounded,
-                          color: Color(0xFFFF8A00),
+                          Icons.person_outline_rounded,
+                          color: AppColors.primary,
                         ),
                       ),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: Text(
-                          'Weekend player looking for friendly but competitive runs.',
+                          'Connect through chat and keep the conversation going once you are friends.',
                           style: textTheme.bodyLarge,
                         ),
                       ),
@@ -175,7 +177,28 @@ class _FriendRequestProfileScreenState
           ),
           const SizedBox(height: AppSpacing.xl),
           OutlinedButton.icon(
-            onPressed: _isSubmitting ? null : () {},
+            onPressed: _isSubmitting
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => FriendSearchProfileScreen(
+                          result: FriendSearchResult(
+                            userID: person.userID,
+                            username: person.username,
+                            displayName: person.displayName,
+                            avatarUrl: person.avatarUrl,
+                            city: person.city,
+                            connectionStatus: _showChatButton
+                                ? FriendConnectionStatus.friends
+                                : widget.isIncomingRequest
+                                    ? FriendConnectionStatus.incomingRequest
+                                    : FriendConnectionStatus.requested,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
             icon: const Icon(Icons.person_outline_rounded),
             label: const Text('View full profile'),
           ),

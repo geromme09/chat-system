@@ -6,8 +6,8 @@ class SessionProfile {
     required this.bio,
     required this.city,
     required this.country,
-    required this.sports,
-    required this.skillLevel,
+    required this.gender,
+    required this.hobbiesText,
     required this.visible,
   });
 
@@ -15,8 +15,8 @@ class SessionProfile {
   final String bio;
   final String city;
   final String country;
-  final List<String> sports;
-  final String skillLevel;
+  final String gender;
+  final String hobbiesText;
   final bool visible;
 
   factory SessionProfile.fromJson(Map<String, dynamic> json) {
@@ -25,10 +25,8 @@ class SessionProfile {
       bio: json['bio'] as String? ?? '',
       city: json['city'] as String? ?? '',
       country: json['country'] as String? ?? '',
-      sports: (json['sports'] as List<dynamic>? ?? const [])
-          .whereType<String>()
-          .toList(),
-      skillLevel: json['skill_level'] as String? ?? '',
+      gender: json['gender'] as String? ?? '',
+      hobbiesText: json['hobbies_text'] as String? ?? '',
       visible: json['visible'] as bool? ?? true,
     );
   }
@@ -38,8 +36,8 @@ class SessionProfile {
     String? bio,
     String? city,
     String? country,
-    List<String>? sports,
-    String? skillLevel,
+    String? gender,
+    String? hobbiesText,
     bool? visible,
   }) {
     return SessionProfile(
@@ -47,8 +45,8 @@ class SessionProfile {
       bio: bio ?? this.bio,
       city: city ?? this.city,
       country: country ?? this.country,
-      sports: sports ?? this.sports,
-      skillLevel: skillLevel ?? this.skillLevel,
+      gender: gender ?? this.gender,
+      hobbiesText: hobbiesText ?? this.hobbiesText,
       visible: visible ?? this.visible,
     );
   }
@@ -58,11 +56,13 @@ class AppSession extends ChangeNotifier {
   String? _token;
   String? _userID;
   SessionProfile? _profile;
+  bool _profileComplete = false;
   String? _customStatus;
 
   String? get token => _token;
   String? get userID => _userID;
   SessionProfile? get profile => _profile;
+  bool get profileComplete => _profileComplete;
   String? get customStatus => _customStatus;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
 
@@ -70,16 +70,19 @@ class AppSession extends ChangeNotifier {
     required String token,
     required String userID,
     required SessionProfile profile,
+    required bool profileComplete,
   }) {
     _token = token;
     _userID = userID;
     _profile = profile;
+    _profileComplete = profileComplete;
     _customStatus = null;
     notifyListeners();
   }
 
-  void updateProfile(SessionProfile profile) {
+  void updateProfile(SessionProfile profile, {bool? profileComplete}) {
     _profile = profile;
+    _profileComplete = profileComplete ?? _profileComplete;
     notifyListeners();
   }
 
@@ -92,6 +95,7 @@ class AppSession extends ChangeNotifier {
     _token = null;
     _userID = null;
     _profile = null;
+    _profileComplete = false;
     _customStatus = null;
     notifyListeners();
   }

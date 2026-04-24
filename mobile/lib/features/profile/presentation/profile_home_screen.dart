@@ -112,10 +112,7 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
               status: _currentStatus,
               onEditStatus: _editStatus,
               onOpenSettings: () {
-                Navigator.of(context).pushNamed(
-                  AppRoute.profileSetup.path,
-                  arguments: profile?.sports ?? const <String>[],
-                );
+                Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
               },
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -125,10 +122,7 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
                 title: 'About',
                 action: IconButton(
                   onPressed: () {
-                    Navigator.of(context).pushNamed(
-                      AppRoute.profileSetup.path,
-                      arguments: profile?.sports ?? const <String>[],
-                    );
+                    Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
                   },
                   icon: const Icon(Icons.edit_outlined),
                   style: IconButton.styleFrom(
@@ -140,7 +134,7 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
                   _valueOrFallback(
                     profile?.bio,
                     fallback:
-                        'Add a short intro so people know how you like to play.',
+                        'Add a short intro so friends know a little about you.',
                   ),
                   style: textTheme.bodyLarge,
                 ),
@@ -149,14 +143,11 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
             const SizedBox(height: AppSpacing.md),
             SectionCard(
               child: _ProfileSection(
-                icon: Icons.sports_basketball_rounded,
-                title: 'Sports',
+                icon: Icons.person_outline_rounded,
+                title: 'Identity',
                 action: IconButton(
                   onPressed: () {
-                    Navigator.of(context).pushNamed(
-                      AppRoute.profileSetup.path,
-                      arguments: profile?.sports ?? const <String>[],
-                    );
+                    Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
                   },
                   icon: const Icon(Icons.edit_outlined),
                   style: IconButton.styleFrom(
@@ -164,46 +155,45 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
                     foregroundColor: AppColors.textSecondary,
                   ),
                 ),
-                child: profile == null || profile.sports.isEmpty
+                child: Text(
+                  _valueOrFallback(
+                    profile?.gender,
+                    fallback: 'Gender not shared',
+                  ),
+                  style: textTheme.bodyLarge,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            SectionCard(
+              child: _ProfileSection(
+                icon: Icons.interests_outlined,
+                title: 'Interests',
+                action: IconButton(
+                  onPressed: () {
+                    Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppColors.surfaceSoft,
+                    foregroundColor: AppColors.textSecondary,
+                  ),
+                ),
+                child: profile == null || profile.hobbiesText.trim().isEmpty
                     ? Text(
-                        'No sports selected yet.',
+                        'No hobbies or interests added yet.',
                         style: textTheme.bodyMedium,
                       )
-                    : Wrap(
-                        spacing: AppSpacing.sm,
-                        runSpacing: AppSpacing.sm,
-                        children: profile.sports
-                            .map(
-                              (sport) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.md,
-                                  vertical: AppSpacing.sm,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _sportColor(sport)
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  sport,
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: _sportColor(sport),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
+                    : Text(
+                        profile.hobbiesText.trim(),
+                        style: textTheme.bodyLarge,
                       ),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
               onPressed: () {
-                Navigator.of(context).pushNamed(
-                  AppRoute.profileSetup.path,
-                  arguments: profile?.sports ?? const <String>[],
-                );
+                Navigator.of(context).pushNamed(AppRoute.profileSetup.path);
               },
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit profile'),
@@ -253,20 +243,6 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
     ];
 
     return parts.isEmpty ? 'Location not set' : parts.join(', ');
-  }
-
-  static Color _sportColor(String sport) {
-    final normalized = sport.toLowerCase();
-    if (normalized.contains('basket')) {
-      return AppColors.primary;
-    }
-    if (normalized.contains('soccer') || normalized.contains('football')) {
-      return const Color(0xFFFF8A00);
-    }
-    if (normalized.contains('run')) {
-      return const Color(0xFF2383E2);
-    }
-    return const Color(0xFF2CA56D);
   }
 }
 

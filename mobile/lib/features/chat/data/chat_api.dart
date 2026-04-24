@@ -77,7 +77,9 @@ class ChatMessage {
     required this.senderUserID,
     required this.body,
     required this.createdAt,
+    this.clientID = '',
     this.readAt,
+    this.peerReadAt,
   });
 
   final String id;
@@ -85,7 +87,9 @@ class ChatMessage {
   final String senderUserID;
   final String body;
   final DateTime? createdAt;
+  final String clientID;
   final DateTime? readAt;
+  final DateTime? peerReadAt;
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     return ChatMessage(
@@ -94,7 +98,33 @@ class ChatMessage {
       senderUserID: json['sender_user_id'] as String? ?? '',
       body: json['body'] as String? ?? '',
       createdAt: parseChatDateTime(json['created_at']),
+      clientID: json['client_id'] as String? ?? '',
       readAt: parseChatDateTime(json['read_at']),
+      peerReadAt: parseChatDateTime(json['peer_read_at']),
+    );
+  }
+
+  ChatMessage copyWith({
+    String? id,
+    String? conversationID,
+    String? senderUserID,
+    String? body,
+    DateTime? createdAt,
+    String? clientID,
+    DateTime? readAt,
+    bool clearReadAt = false,
+    DateTime? peerReadAt,
+    bool clearPeerReadAt = false,
+  }) {
+    return ChatMessage(
+      id: id ?? this.id,
+      conversationID: conversationID ?? this.conversationID,
+      senderUserID: senderUserID ?? this.senderUserID,
+      body: body ?? this.body,
+      createdAt: createdAt ?? this.createdAt,
+      clientID: clientID ?? this.clientID,
+      readAt: clearReadAt ? null : (readAt ?? this.readAt),
+      peerReadAt: clearPeerReadAt ? null : (peerReadAt ?? this.peerReadAt),
     );
   }
 }
@@ -103,15 +133,24 @@ class ConversationReadResult {
   const ConversationReadResult({
     required this.conversationID,
     required this.markedCount,
+    required this.readerUserID,
+    required this.lastReadMessageID,
+    this.readAt,
   });
 
   final String conversationID;
   final int markedCount;
+  final String readerUserID;
+  final String lastReadMessageID;
+  final DateTime? readAt;
 
   factory ConversationReadResult.fromJson(Map<String, dynamic> json) {
     return ConversationReadResult(
       conversationID: json['conversation_id'] as String? ?? '',
       markedCount: (json['marked_count'] as num?)?.toInt() ?? 0,
+      readerUserID: json['reader_user_id'] as String? ?? '',
+      lastReadMessageID: json['last_read_message_id'] as String? ?? '',
+      readAt: parseChatDateTime(json['read_at']),
     );
   }
 }

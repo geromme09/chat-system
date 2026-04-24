@@ -1,35 +1,69 @@
 # Domain Boundaries
 
 ## User
-Owns account registration, login, session issuance, profile data, avatar metadata, and sport preferences.
+
+Owns:
+
+- account registration
+- login
+- session issuance
+- base profile data
+- public player identity metadata
+
+Should remain social-platform focused and not absorb full fighter-creation state.
 
 ## Friendship
-Owns QR friend connections, requests, accepted friendships, and block rules.
+
+Owns:
+
+- friend requests
+- accepted friendships
+- relationship rules
+- future social challenge or invite entry points if needed
 
 ## Chat
-Owns conversations, participants, messages, message reads, and realtime delivery contracts.
 
-## Discovery
-Owns visibility rules, location-aware filtering, swipe decisions, and mutual matches.
+Owns:
 
-## Challenge
-Owns challenge lifecycle, scheduling metadata, and result capture.
-
-## Feed
-Owns feed posts, media references, and challenge recap content.
-
-## Ranking
-Owns sport ranking points and geographic leaderboard queries.
+- conversations
+- participants
+- messages
+- read state
+- realtime delivery contracts
 
 ## Notification
-Owns push and in-app notification fanout.
 
-## Extraction reminder
-These boundaries are defined so they can later become service boundaries if needed.
+Owns:
 
-Likely future service candidates:
+- in-app notification fanout
+- read state
+- future notification taxonomy for social and game-linked summaries
+
+## Sport
+
+Currently owns the legacy onboarding catalog support still present in the app.
+
+This module is no longer the strategic center of the product and should be revisited later. It may be reduced, repurposed, or removed depending on the final character-creation flow.
+
+## Future External Game Boundary
+
+The following should be treated as an external future game domain, not as new modules inside FaceOff Social by default:
+
+- fighter creation
+- fighter appearance attributes
+- portrait generation
+- gameplay
+- matchmaking
+- ranking
+- match history
+
+## Extraction Reminder
+
+These boundaries are defined so FaceOff Social can later remain focused as a social platform even after the game exists.
+
+Likely future service candidates inside Social if extraction is needed:
+
+- `identity-api`
+- `social-api`
 - `chat-api`
-- `challenge-api`
-- `discovery-api`
-- `feed-api`
-- `user-api` only when identity and trust flows become operationally complex
+- `notification-worker`

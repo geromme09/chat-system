@@ -36,14 +36,14 @@ type LoginInput struct {
 }
 
 type UpdateProfileInput struct {
-	DisplayName    string   `json:"display_name" validate:"required"`
-	Bio            string   `json:"bio"`
-	AvatarFileName string   `json:"avatar_file_name"`
-	City           string   `json:"city"`
-	Country        string   `json:"country"`
-	Sports         []string `json:"sports"`
-	SkillLevel     string   `json:"skill_level"`
-	Visible        bool     `json:"visible"`
+	DisplayName    string `json:"display_name" validate:"required"`
+	Bio            string `json:"bio"`
+	AvatarFileName string `json:"avatar_file_name"`
+	City           string `json:"city"`
+	Country        string `json:"country"`
+	Gender         string `json:"gender"`
+	HobbiesText    string `json:"hobbies_text"`
+	Visible        bool   `json:"visible"`
 }
 
 type AuthResult struct {
@@ -129,7 +129,7 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 		AccountStatus:   "active",
 		AuthProvider:    "local",
 		IsVerified:      false,
-		ProfileComplete: true,
+		ProfileComplete: false,
 		CreatedAt:       now,
 	}
 	profile := domain.Profile{
@@ -139,8 +139,8 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 		AvatarURL:    s.storage.AvatarURL(strings.TrimSpace(input.AvatarFileName)),
 		City:         strings.TrimSpace(input.City),
 		Country:      strings.TrimSpace(input.Country),
-		Sports:       []string{},
-		SkillLevel:   "",
+		Gender:       "",
+		HobbiesText:  "",
 		Visible:      true,
 		LastModified: now,
 	}
@@ -357,6 +357,15 @@ func (s *Service) GetMe(ctx context.Context, userID string) (AuthResult, error) 
 	}, nil
 }
 
+func (s *Service) GetPublicProfile(ctx context.Context, actorUserID, targetUserID string) (domain.PublicProfile, error) {
+	targetUserID = strings.TrimSpace(targetUserID)
+	if targetUserID == "" {
+		return domain.PublicProfile{}, errors.New("target user id is required")
+	}
+
+	return s.repo.GetPublicProfile(ctx, actorUserID, targetUserID)
+}
+
 func (s *Service) UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (domain.Profile, error) {
 	current, err := s.repo.GetProfile(ctx, userID)
 	if err != nil {
@@ -373,8 +382,8 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, input Update
 	}
 	current.City = strings.TrimSpace(input.City)
 	current.Country = strings.TrimSpace(input.Country)
-	current.Sports = append([]string{}, input.Sports...)
-	current.SkillLevel = strings.TrimSpace(input.SkillLevel)
+	current.Gender = strings.TrimSpace(input.Gender)
+	current.HobbiesText = strings.TrimSpace(input.HobbiesText)
 	current.Visible = input.Visible
 	current.LastModified = s.timeSource()
 

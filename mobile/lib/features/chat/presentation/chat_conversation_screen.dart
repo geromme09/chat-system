@@ -33,6 +33,11 @@ class _LoadedConversationData {
   final String? firstUnreadMessageID;
 }
 
+enum _LocalMessageState {
+  sending,
+  failed,
+}
+
 class ChatConversationScreen extends StatefulWidget {
   const ChatConversationScreen({
     super.key,
@@ -54,21 +59,25 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
+  final Set<String> _sendingMessageIDs = <String>{};
+  final Set<String> _failedMessageIDs = <String>{};
+  final Map<String, String> _messageErrors = <String, String>{};
 
   StreamSubscription<ChatRealtimeEvent>? _realtimeSubscription;
   StreamSubscription<ChatRealtimeStatus>? _statusSubscription;
   Timer? _typingStopTimer;
 
   bool _isLoading = true;
-  bool _isSending = false;
   bool _isOtherUserTyping = false;
   bool _didInitialPosition = false;
   bool _didSendTypingStarted = false;
   String? _errorMessage;
   String? _pendingScrollTargetMessageID;
   late String _presenceLabel;
-  late final WidgetsBindingObserver _lifecycleObserver =
-      _ChatLifecycleObserver(onResumed: _handleAppResumed);
+  late final WidgetsBindingObserver _lifecycleObserver = _ChatLifecycleObserver(
+    onResumed: _handleAppResumed,
+    onBackgrounded: _stopTypingSignal,
+  );
 
   @override
   void initState() {
@@ -81,6 +90,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
   @override
   void dispose() {
+    _stopTypingSignal();
     WidgetsBinding.instance.removeObserver(_lifecycleObserver);
     _typingStopTimer?.cancel();
     _statusSubscription?.cancel();
@@ -93,7 +103,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   Future<void> _loadConversation() async {
     final token = appSession.token;
     if (token == null || token.isEmpty) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _isLoading = false;
         _errorMessage = 'Please sign in again.';
@@ -120,7 +132,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       _scheduleInitialPositioning();
       await _markConversationRead(token);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _errorMessage = 'Unable to load this conversation right now.';
       });
@@ -189,6 +203,17 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
               _scrollToBottom(animated: true);
             }
             return;
+          case ChatRealtimeEvents.conversationRead:
+            if (event.conversationID != widget.args.conversationID ||
+                event.userID == appSession.userID ||
+                event.readAt == null) {
+              return;
+            }
+
+            setState(() {
+              _applyPeerReadReceipt(event.readAt!);
+            });
+            return;
           case ChatRealtimeEvents.typingStarted:
             if (event.conversationID != widget.args.conversationID) {
               return;
@@ -221,16 +246,68 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
   Future<void> _sendMessage() async {
     final token = appSession.token;
-    final message = _messageController.text;
-    if (token == null ||
-        token.isEmpty ||
-        message.trim().isEmpty ||
-        _isSending) {
+    final body = _messageController.text.trim();
+    if (token == null || token.isEmpty || body.isEmpty) {
+      return;
+    }
+
+    final localMessageID =
+        'local-${DateTime.now().microsecondsSinceEpoch.toString()}';
+    final localMessage = ChatMessage(
+      id: localMessageID,
+      clientID: localMessageID,
+      conversationID: widget.args.conversationID,
+      senderUserID: appSession.userID ?? '',
+      body: body,
+      createdAt: DateTime.now().toUtc(),
+    );
+
+    setState(() {
+      _errorMessage = null;
+      _messageController.clear();
+      _upsertMessage(localMessage);
+      _sendingMessageIDs.add(localMessageID);
+      _failedMessageIDs.remove(localMessageID);
+      _messageErrors.remove(localMessageID);
+    });
+    _stopTypingSignal();
+    _scrollToBottom(animated: true);
+
+    try {
+      final sentMessage = await _chatApi.sendMessage(
+        token: token,
+        conversationID: widget.args.conversationID,
+        request: SendMessageRequest(body: body),
+      );
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _replaceLocalMessage(localMessageID, sentMessage);
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = error.toString().replaceFirst('HttpException: ', '');
+      setState(() {
+        _markMessageFailed(localMessageID, message);
+        _errorMessage = message;
+      });
+    }
+  }
+
+  Future<void> _retryMessage(ChatMessage message) async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
       return;
     }
 
     setState(() {
-      _isSending = true;
+      _sendingMessageIDs.add(message.id);
+      _failedMessageIDs.remove(message.id);
+      _messageErrors.remove(message.id);
       _errorMessage = null;
     });
 
@@ -238,33 +315,30 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       final sentMessage = await _chatApi.sendMessage(
         token: token,
         conversationID: widget.args.conversationID,
-        request: SendMessageRequest(body: message),
+        request: SendMessageRequest(body: message.body),
       );
 
-      if (!mounted) return;
-      setState(() {
-        _upsertMessage(sentMessage);
-        _messageController.clear();
-      });
-      _stopTypingSignal();
-      _scrollToBottom(animated: true);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = error.toString().replaceFirst('HttpException: ', '');
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-        });
+      if (!mounted) {
+        return;
       }
+      setState(() {
+        _replaceLocalMessage(message.id, sentMessage);
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final messageText = error.toString().replaceFirst('HttpException: ', '');
+      setState(() {
+        _markMessageFailed(message.id, messageText);
+        _errorMessage = messageText;
+      });
     }
   }
 
   Future<void> _refreshConversationSilently() async {
     final token = appSession.token;
-    if (token == null || token.isEmpty || !mounted || _isSending) {
+    if (token == null || token.isEmpty || !mounted) {
       return;
     }
 
@@ -307,38 +381,102 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   Future<void> _markConversationRead(String token) async {
-    await _chatApi.markConversationRead(
+    final result = await _chatApi.markConversationRead(
       token: token,
       conversationID: widget.args.conversationID,
     );
+    if (!mounted) {
+      return;
+    }
+
+    if (result.markedCount > 0 && result.readAt != null) {
+      setState(() {
+        _applyOwnReadReceipt(result.readAt!);
+      });
+    }
+
     await chatUnreadController.refresh();
   }
 
   Future<void> _handleAppResumed() async {
     await _refreshConversationSilently();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _presenceLabel = _currentPresenceLabel();
     });
   }
 
   void _replaceMessages(List<ChatMessage> messages) {
+    final localPendingOrFailed = _messages
+        .where(
+          (message) =>
+              _isLocalMessage(message.id) &&
+              (_sendingMessageIDs.contains(message.id) ||
+                  _failedMessageIDs.contains(message.id)),
+        )
+        .toList();
+
     _messages
       ..clear()
-      ..addAll(messages);
+      ..addAll(messages)
+      ..addAll(localPendingOrFailed);
     _syncMessageKeys();
   }
 
   void _upsertMessage(ChatMessage message) {
-    final existingIndex = _messages.indexWhere(
-      (item) => item.id == message.id,
-    );
+    final existingIndex = _messages.indexWhere((item) => item.id == message.id);
     if (existingIndex >= 0) {
       _messages[existingIndex] = message;
     } else {
       _messages.add(message);
     }
     _syncMessageKeys();
+  }
+
+  void _replaceLocalMessage(String localMessageID, ChatMessage sentMessage) {
+    final existingIndex = _messages.indexWhere(
+      (item) => item.id == localMessageID,
+    );
+    if (existingIndex >= 0) {
+      _messages[existingIndex] = sentMessage;
+    } else {
+      _messages.add(sentMessage);
+    }
+    _sendingMessageIDs.remove(localMessageID);
+    _failedMessageIDs.remove(localMessageID);
+    _messageErrors.remove(localMessageID);
+    _syncMessageKeys();
+  }
+
+  void _markMessageFailed(String localMessageID, String errorMessage) {
+    _sendingMessageIDs.remove(localMessageID);
+    _failedMessageIDs.add(localMessageID);
+    _messageErrors[localMessageID] = errorMessage;
+  }
+
+  void _applyOwnReadReceipt(DateTime readAt) {
+    for (var index = 0; index < _messages.length; index++) {
+      final message = _messages[index];
+      if (message.senderUserID == appSession.userID || message.readAt != null) {
+        continue;
+      }
+      _messages[index] = message.copyWith(readAt: readAt);
+    }
+  }
+
+  void _applyPeerReadReceipt(DateTime readAt) {
+    for (var index = 0; index < _messages.length; index++) {
+      final message = _messages[index];
+      if (message.senderUserID != appSession.userID ||
+          message.createdAt == null ||
+          message.createdAt!.isAfter(readAt) ||
+          _isLocalMessage(message.id)) {
+        continue;
+      }
+      _messages[index] = message.copyWith(peerReadAt: readAt);
+    }
   }
 
   void _syncMessageKeys() {
@@ -363,10 +501,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       final targetMessageID = _pendingScrollTargetMessageID;
       if (targetMessageID != null) {
         final key = _messageKeys[targetMessageID];
-        final context = key?.currentContext;
-        if (context != null) {
+        final targetContext = key?.currentContext;
+        if (targetContext != null) {
           Scrollable.ensureVisible(
-            context,
+            targetContext,
             duration: const Duration(milliseconds: 220),
             alignment: 0.1,
           );
@@ -428,7 +566,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   void _handleComposerChanged(String rawValue) {
-    final hasText = rawValue.isNotEmpty;
+    final hasText = rawValue.trim().isNotEmpty;
     if (!hasText) {
       _stopTypingSignal();
       return;
@@ -455,9 +593,36 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     ChatRealtimeClient.instance.sendTypingStopped(widget.args.conversationID);
   }
 
+  bool _isLocalMessage(String messageID) {
+    return messageID.startsWith('local-');
+  }
+
+  _LocalMessageState? _messageState(String messageID) {
+    if (_sendingMessageIDs.contains(messageID)) {
+      return _LocalMessageState.sending;
+    }
+    if (_failedMessageIDs.contains(messageID)) {
+      return _LocalMessageState.failed;
+    }
+    return null;
+  }
+
+  String? _latestSeenOwnMessageID() {
+    for (var index = _messages.length - 1; index >= 0; index--) {
+      final message = _messages[index];
+      if (message.senderUserID == appSession.userID &&
+          message.peerReadAt != null &&
+          !_isLocalMessage(message.id)) {
+        return message.id;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final latestSeenOwnMessageID = _latestSeenOwnMessageID();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -568,6 +733,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         message: message,
                         isMine: message.senderUserID == appSession.userID,
                         conversationTitle: widget.args.title,
+                        state: _messageState(message.id),
+                        isLatestSeenMessage:
+                            latestSeenOwnMessageID == message.id,
+                        errorText: _messageErrors[message.id],
+                        onRetry: _messageState(message.id) ==
+                                _LocalMessageState.failed
+                            ? () => _retryMessage(message)
+                            : null,
                       ),
                     );
                   },
@@ -631,23 +804,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   FilledButton(
-                    onPressed: _isSending ? null : _sendMessage,
+                    onPressed: _sendMessage,
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(56, 56),
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.md,
                       ),
                     ),
-                    child: _isSending
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.send_rounded),
+                    child: const Icon(Icons.send_rounded),
                   ),
                 ],
               ),
@@ -675,11 +839,19 @@ class _ChatBubble extends StatelessWidget {
     required this.message,
     required this.isMine,
     required this.conversationTitle,
+    required this.state,
+    required this.isLatestSeenMessage,
+    required this.errorText,
+    this.onRetry,
   });
 
   final ChatMessage message;
   final bool isMine;
   final String conversationTitle;
+  final _LocalMessageState? state;
+  final bool isLatestSeenMessage;
+  final String? errorText;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -747,11 +919,56 @@ class _ChatBubble extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
+              if (isMine && (_statusLabel()?.isNotEmpty ?? false)) ...[
+                const SizedBox(height: 2),
+                Text(
+                  _statusLabel()!,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: isMine
+                        ? Colors.white.withValues(alpha: 0.8)
+                        : AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+              if (isMine &&
+                  state == _LocalMessageState.failed &&
+                  onRetry != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: TextButton(
+                    onPressed: onRetry,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Tap to retry'),
+                  ),
+                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  String? _statusLabel() {
+    switch (state) {
+      case _LocalMessageState.sending:
+        return 'Sending...';
+      case _LocalMessageState.failed:
+        return 'Failed to send';
+      case null:
+        break;
+    }
+
+    if (isLatestSeenMessage && message.peerReadAt != null) {
+      return 'Seen';
+    }
+
+    return null;
   }
 
   static String _formatTimestamp(DateTime? value) {
@@ -792,7 +1009,7 @@ class _TypingIndicator extends StatelessWidget {
           border: Border.all(color: AppColors.border),
         ),
         child: Text(
-          'typing ....',
+          'Typing...',
           style: textTheme.bodyMedium?.copyWith(
             color: AppColors.textSecondary,
             fontStyle: FontStyle.italic,
@@ -806,14 +1023,23 @@ class _TypingIndicator extends StatelessWidget {
 class _ChatLifecycleObserver with WidgetsBindingObserver {
   _ChatLifecycleObserver({
     required this.onResumed,
+    required this.onBackgrounded,
   });
 
   final Future<void> Function() onResumed;
+  final VoidCallback onBackgrounded;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       onResumed();
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      onBackgrounded();
     }
   }
 }

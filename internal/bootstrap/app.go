@@ -10,10 +10,10 @@ import (
 	chatapp "github.com/geromme09/chat-system/internal/modules/chat/app"
 	chatinfra "github.com/geromme09/chat-system/internal/modules/chat/infra"
 	chatws "github.com/geromme09/chat-system/internal/modules/chat/transport/ws"
+	feedapp "github.com/geromme09/chat-system/internal/modules/feed/app"
+	feedinfra "github.com/geromme09/chat-system/internal/modules/feed/infra"
 	notificationapp "github.com/geromme09/chat-system/internal/modules/notification/app"
 	notificationinfra "github.com/geromme09/chat-system/internal/modules/notification/infra"
-	sportapp "github.com/geromme09/chat-system/internal/modules/sport/app"
-	sportinfra "github.com/geromme09/chat-system/internal/modules/sport/infra"
 	userapp "github.com/geromme09/chat-system/internal/modules/user/app"
 	userinfra "github.com/geromme09/chat-system/internal/modules/user/infra"
 	"github.com/geromme09/chat-system/internal/platform/auth"
@@ -21,7 +21,6 @@ import (
 	appLogger "github.com/geromme09/chat-system/internal/platform/logger"
 	"github.com/geromme09/chat-system/internal/platform/messaging"
 	"github.com/geromme09/chat-system/internal/platform/storage"
-	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
@@ -32,8 +31,8 @@ type App struct {
 	DB                  *gorm.DB
 	Logger              *slog.Logger
 	UserService         *userapp.Service
-	SportService        *sportapp.Service
 	ChatService         *chatapp.Service
+	FeedService         *feedapp.Service
 	NotificationService *notificationapp.Service
 	ChatHub             *chatws.Hub
 	Publisher           messaging.Publisher
@@ -49,28 +48,27 @@ func NewApp() (*App, error) {
 
 	tokenManager := auth.NewTokenManager(cfg.TokenSecret)
 	passwordHasher := auth.PasswordHasher{}
-	storageService := storage.NewService(cfg.StorageBaseURL)
+	storageService := storage.NewService(cfg.StorageBaseURL, cfg.StorageLocalDir)
 	userRepo := userinfra.NewPostgresRepository(db)
 	chatRepo := chatinfra.NewPostgresRepository(db)
+	feedRepo := feedinfra.NewPostgresRepository(db)
 	notificationRepo := notificationinfra.NewPostgresRepository(db)
 	chatHub := chatws.NewHub(logger, chatRepo)
 	publisher := messaging.NoopPublisher{}
-	sportRepo := sportinfra.NewPostgresRepository(db)
-	sportCache := sportCache(cfg)
 	notificationFactory := notificationapp.NewStaticChannelFactory(chatHub)
 	notificationService := notificationapp.NewService(notificationRepo, notificationFactory)
 
 	chatService := chatapp.NewService(chatRepo, userRepo, publisher, chatHub)
+	feedService := feedapp.NewService(feedRepo, storageService, notificationService)
 	userService := userapp.NewService(userRepo, passwordHasher, tokenManager, storageService, publisher, notificationService, chatService)
-	sportsService := sportapp.NewService(sportRepo, sportCache)
 
 	return &App{
 		Config:              cfg,
 		DB:                  db,
 		Logger:              logger,
 		UserService:         userService,
-		SportService:        sportsService,
 		ChatService:         chatService,
+		FeedService:         feedService,
 		NotificationService: notificationService,
 		ChatHub:             chatHub,
 		Publisher:           publisher,
@@ -132,26 +130,4 @@ type gormLogWriter struct {
 
 func (w gormLogWriter) Printf(format string, args ...any) {
 	w.logger.Info(fmt.Sprintf(format, args...))
-}
-
-func sportCache(cfg config.Config) sportapp.Cache {
-	if cfg.RedisAddr == "" {
-		return nil
-	}
-
-	client := redis.NewClient(&redis.Options{
-		Addr:         cfg.RedisAddr,
-		Password:     cfg.RedisPassword,
-		DB:           cfg.RedisDB,
-		PoolSize:     cfg.RedisPoolSize,
-		MinIdleConns: cfg.RedisMinIdleConns,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil
-	}
-
-	return sportinfra.NewRedisCache(client)
 }

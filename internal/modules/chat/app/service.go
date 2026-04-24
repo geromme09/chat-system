@@ -22,6 +22,7 @@ type UserLookup interface {
 
 type RealtimeNotifier interface {
 	NotifyMessageCreated(ctx context.Context, conversation domain.Conversation, message domain.Message) error
+	NotifyConversationRead(ctx context.Context, conversation domain.Conversation, result domain.ConversationReadResult) error
 	IsUserOnline(userID string) bool
 }
 
@@ -225,15 +226,19 @@ func (s *Service) MarkConversationRead(ctx context.Context, actorUserID, convers
 		return domain.ConversationReadResult{}, err
 	}
 
-	markedCount, err := s.repo.MarkConversationRead(ctx, conversation.ID, actorUserID, s.timeSource())
+	result, err := s.repo.MarkConversationRead(ctx, conversation.ID, actorUserID, s.timeSource())
 	if err != nil {
 		return domain.ConversationReadResult{}, err
 	}
 
-	return domain.ConversationReadResult{
-		ConversationID: conversationID,
-		MarkedCount:    markedCount,
-	}, nil
+	result.ConversationID = conversationID
+	result.ReaderUserID = actorUserID
+
+	if s.notifier != nil && result.MarkedCount > 0 && result.ReadAt != nil {
+		_ = s.notifier.NotifyConversationRead(ctx, conversation, result)
+	}
+
+	return result, nil
 }
 
 func (s *Service) GetUnreadCount(ctx context.Context, actorUserID string) (domain.UnreadCount, error) {

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../feed/data/feed_api.dart';
+import '../../profile/data/profile_api.dart';
 import '../data/friend_search_api.dart';
 import '../data/friends_api.dart';
 
@@ -20,9 +22,130 @@ class FriendSearchProfileScreen extends StatefulWidget {
 
 class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
   final FriendsApi _friendsApi = FriendsApi();
+  final FeedApi _feedApi = FeedApi();
+  final ProfileApi _profileApi = ProfileApi();
+  final ScrollController _scrollController = ScrollController();
 
   late String _connectionStatus = widget.result.connectionStatus;
+  PublicProfile? _profile;
+  List<FeedPost> _posts = const <FeedPost>[];
+  String _nextCursor = '';
   bool _isSendingRequest = false;
+  bool _isLoadingProfile = true;
+  bool _isLoadingPosts = true;
+  bool _isLoadingMorePosts = false;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_handleScroll);
+    _loadProfile();
+    _loadPosts();
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingProfile = false;
+        _message = 'Please sign in again to view profiles.';
+      });
+      return;
+    }
+
+    try {
+      final profile = await _profileApi.getProfile(
+        token: token,
+        userID: widget.result.userID,
+      );
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+        _connectionStatus = profile.connectionStatus;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _message = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingProfile = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPosts({bool loadMore = false}) async {
+    final token = appSession.token;
+    if (token == null || token.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingPosts = false;
+        _message = 'Please sign in again to load posts.';
+      });
+      return;
+    }
+    if (loadMore && (_isLoadingMorePosts || _nextCursor.isEmpty)) {
+      return;
+    }
+
+    setState(() {
+      if (loadMore) {
+        _isLoadingMorePosts = true;
+      } else {
+        _isLoadingPosts = true;
+      }
+    });
+
+    try {
+      final page = await _feedApi.listPosts(
+        token: token,
+        authorUserID: widget.result.userID,
+        cursor: loadMore ? _nextCursor : '',
+        limit: 10,
+      );
+      if (!mounted) return;
+      setState(() {
+        _posts = loadMore ? <FeedPost>[..._posts, ...page.items] : page.items;
+        _nextCursor = page.nextCursor;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _message = error.toString().replaceFirst('HttpException: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingPosts = false;
+          _isLoadingMorePosts = false;
+        });
+      }
+    }
+  }
+
+  void _handleScroll() {
+    if (!_scrollController.hasClients || _isLoadingMorePosts) {
+      return;
+    }
+
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 280) {
+      _loadPosts(loadMore: true);
+    }
+  }
 
   Future<void> _sendFriendRequest() async {
     final token = appSession.token;
@@ -48,7 +171,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Friend request sent to @${widget.result.username}.'),
+          content: Text('Friend request sent to @$_username.'),
         ),
       );
     } catch (error) {
@@ -67,15 +190,32 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
     }
   }
 
+  String get _title {
+    final displayName = _profile?.displayName.trim() ?? '';
+    if (displayName.isNotEmpty) return displayName;
+    final fallback = widget.result.displayName.trim();
+    return fallback.isEmpty ? widget.result.username : fallback;
+  }
+
+  String get _username {
+    final username = _profile?.username.trim() ?? '';
+    if (username.isNotEmpty) return username;
+    return widget.result.username;
+  }
+
+  String get _location {
+    final parts = <String>[
+      if ((_profile?.city.trim() ?? '').isNotEmpty) _profile!.city.trim(),
+      if ((_profile?.country.trim() ?? '').isNotEmpty) _profile!.country.trim(),
+    ];
+    if (parts.isNotEmpty) return parts.join(', ');
+    final fallback = widget.result.city.trim();
+    return fallback.isEmpty ? 'Location not shared yet' : fallback;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final title = widget.result.displayName.trim().isEmpty
-        ? widget.result.username
-        : widget.result.displayName.trim();
-    final location = widget.result.city.trim().isEmpty
-        ? 'Location not shared yet'
-        : widget.result.city.trim();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -117,13 +257,6 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                           ),
                         ),
                         const Spacer(),
-                        IconButton(
-                          onPressed: () {},
-                          icon: const Icon(Icons.more_horiz_rounded),
-                          style: IconButton.styleFrom(
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
                       ],
                     ),
                     const Spacer(),
@@ -134,7 +267,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                         radius: 60,
                         backgroundColor: const Color(0xFFE7E2FF),
                         child: Text(
-                          title.characters.first.toUpperCase(),
+                          _title.characters.first.toUpperCase(),
                           style: textTheme.displaySmall?.copyWith(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w700,
@@ -160,6 +293,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                   ),
                 ),
                 child: ListView(
+                  controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.lg,
                     AppSpacing.lg,
@@ -168,13 +302,13 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                   ),
                   children: [
                     Text(
-                      title,
+                      _title,
                       style: textTheme.headlineMedium?.copyWith(fontSize: 24),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Text(
-                      '@${widget.result.username}',
+                      '@$_username',
                       style: textTheme.bodyLarge?.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -192,7 +326,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                         const SizedBox(width: AppSpacing.xs),
                         Flexible(
                           child: Text(
-                            location,
+                            _location,
                             style: textTheme.bodyMedium,
                             textAlign: TextAlign.center,
                           ),
@@ -201,25 +335,44 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     _ProfileBadge(status: _connectionStatus),
+                    if (_message != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        _message!,
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: AppColors.error,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.xl),
                     _ProfileSection(
                       title: 'About',
                       child: Text(
-                        _aboutCopy(title),
+                        _profile?.bio.trim().isNotEmpty == true
+                            ? _profile!.bio.trim()
+                            : _aboutCopy(_title),
                         style: textTheme.bodyLarge,
                       ),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     _ProfileSection(
-                      title: 'Sports',
-                      child: Wrap(
-                        spacing: AppSpacing.sm,
-                        runSpacing: AppSpacing.sm,
-                        children: const [
-                          _SportChip(label: 'Basketball'),
-                          _SportChip(label: 'Soccer'),
-                          _SportChip(label: 'Running'),
-                        ],
+                      title: 'Identity',
+                      child: Text(
+                        _profile?.gender.trim().isNotEmpty == true
+                            ? _profile!.gender.trim()
+                            : 'Gender not shared',
+                        style: textTheme.bodyLarge,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _ProfileSection(
+                      title: 'Interests',
+                      child: Text(
+                        _profile?.hobbiesText.trim().isNotEmpty == true
+                            ? _profile!.hobbiesText.trim()
+                            : 'No interests shared yet.',
+                        style: textTheme.bodyLarge,
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xl),
@@ -240,6 +393,47 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
                           : Icon(_buttonIcon(_connectionStatus)),
                       label: Text(_buttonLabel(_connectionStatus)),
                     ),
+                    const SizedBox(height: AppSpacing.xl),
+                    Text(
+                      'Posts',
+                      style: textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      _isLoadingProfile
+                          ? 'Loading profile...'
+                          : 'Recent updates from $_title.',
+                      style: textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    if (_isLoadingPosts)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_posts.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(AppRadius.lg),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Text(
+                          'No posts yet.',
+                          style: textTheme.bodyLarge,
+                        ),
+                      )
+                    else
+                      for (final post in _posts) ...[
+                        _ProfilePostCard(post: post),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+                    if (_isLoadingMorePosts)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
                   ],
                 ),
               ),
@@ -259,7 +453,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
       case FriendConnectionStatus.incomingRequest:
         return 'This player already sent you a request. Review it from notifications to respond.';
       default:
-        return 'Open profiles first, then add people you want to connect with. This keeps the flow focused and intentional.';
+        return '$title is visible in the feed, but you are not friends yet.';
     }
   }
 
@@ -285,7 +479,7 @@ class _FriendSearchProfileScreenState extends State<FriendSearchProfileScreen> {
       case FriendConnectionStatus.incomingRequest:
         return Icons.mark_email_unread_outlined;
       default:
-        return Icons.add_rounded;
+        return Icons.person_add_alt_1_rounded;
     }
   }
 }
@@ -316,41 +510,43 @@ class _ProfileBadge extends StatelessWidget {
           'Incoming request',
         ),
       _ => (
-          const Color(0xFFF2F3FF),
-          AppColors.primary,
-          'Looking to connect',
+          const Color(0xFFFFF1F0),
+          const Color(0xFFE15241),
+          'Not friends yet',
         ),
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 10,
-      ),
-      decoration: BoxDecoration(
-        color: palette.$1,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: palette.$2,
-              shape: BoxShape.circle,
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color: palette.$1,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: palette.$2,
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(
-            palette.$3,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: palette.$2,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              palette.$3,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: palette.$2,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -371,20 +567,20 @@ class _ProfileSection extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
-        ),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            style: textTheme.titleMedium,
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
           child,
         ],
       ),
@@ -392,31 +588,63 @@ class _ProfileSection extends StatelessWidget {
   }
 }
 
-class _SportChip extends StatelessWidget {
-  const _SportChip({
-    required this.label,
+class _ProfilePostCard extends StatelessWidget {
+  const _ProfilePostCard({
+    required this.post,
   });
 
-  final String label;
+  final FeedPost post;
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(999),
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.border),
       ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w700,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            post.caption,
+            style: textTheme.bodyLarge,
+          ),
+          if (post.hasImage) ...[
+            const SizedBox(height: AppSpacing.md),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Image.network(
+                  post.imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) {
+                    return const ColoredBox(color: AppColors.surfaceSoft);
+                  },
+                ),
+              ),
             ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            _relativeTime(post.createdAt),
+            style: textTheme.bodySmall,
+          ),
+        ],
       ),
     );
+  }
+
+  static String _relativeTime(DateTime? createdAt) {
+    if (createdAt == null) return 'Just now';
+    final difference = DateTime.now().difference(createdAt.toLocal());
+    if (difference.inMinutes < 1) return 'Just now';
+    if (difference.inHours < 1) return '${difference.inMinutes}m ago';
+    if (difference.inDays < 1) return '${difference.inHours}h ago';
+    return '${difference.inDays}d ago';
   }
 }

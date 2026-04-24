@@ -72,6 +72,7 @@ class FriendNotificationRecord {
     required this.title,
     required this.body,
     required this.friendRequest,
+    required this.feedReply,
     required this.createdAt,
     this.readAt,
   });
@@ -81,6 +82,7 @@ class FriendNotificationRecord {
   final String title;
   final String body;
   final FriendRequestRecord? friendRequest;
+  final FeedNotificationRecord? feedReply;
   final DateTime? createdAt;
   final DateTime? readAt;
 
@@ -94,8 +96,16 @@ class FriendNotificationRecord {
       friendRequest != null &&
       friendRequest!.status == 'accepted';
 
+  bool get isFeedPostComment =>
+      type == 'feed_post_comment' && feedReply != null;
+
+  bool get isFeedReply => type == 'feed_comment_reply' && feedReply != null;
+
+  bool get isFeedInteraction => isFeedPostComment || isFeedReply;
+
   FriendNotificationRecord copyWith({
     FriendRequestRecord? friendRequest,
+    FeedNotificationRecord? feedReply,
     DateTime? readAt,
   }) {
     return FriendNotificationRecord(
@@ -104,6 +114,7 @@ class FriendNotificationRecord {
       title: title,
       body: body,
       friendRequest: friendRequest ?? this.friendRequest,
+      feedReply: feedReply ?? this.feedReply,
       createdAt: createdAt,
       readAt: readAt ?? this.readAt,
     );
@@ -112,6 +123,8 @@ class FriendNotificationRecord {
   factory FriendNotificationRecord.fromJson(Map<String, dynamic> json) {
     final data = json['data'] as Map<String, dynamic>? ?? const {};
     final friendRequestJson = data['friend_request'] as Map<String, dynamic>?;
+    final feedReplyJson =
+        (data['feed_reply'] ?? data['feed_comment']) as Map<String, dynamic>?;
 
     return FriendNotificationRecord(
       id: json['id'] as String? ?? '',
@@ -121,8 +134,44 @@ class FriendNotificationRecord {
       friendRequest: friendRequestJson == null
           ? null
           : FriendRequestRecord.fromJson(friendRequestJson),
+      feedReply: feedReplyJson == null
+          ? null
+          : FeedNotificationRecord.fromJson(feedReplyJson),
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
       readAt: DateTime.tryParse(json['read_at'] as String? ?? ''),
+    );
+  }
+}
+
+class FeedNotificationRecord {
+  const FeedNotificationRecord({
+    required this.postID,
+    required this.commentID,
+    required this.parentCommentID,
+    required this.postCaption,
+    required this.commentBody,
+    required this.parentBody,
+    required this.author,
+  });
+
+  final String postID;
+  final String commentID;
+  final String parentCommentID;
+  final String postCaption;
+  final String commentBody;
+  final String parentBody;
+  final FriendSummary? author;
+
+  factory FeedNotificationRecord.fromJson(Map<String, dynamic> json) {
+    final authorJson = json['author'] as Map<String, dynamic>?;
+    return FeedNotificationRecord(
+      postID: json['post_id'] as String? ?? '',
+      commentID: json['comment_id'] as String? ?? '',
+      parentCommentID: json['parent_comment_id'] as String? ?? '',
+      postCaption: json['post_caption'] as String? ?? '',
+      commentBody: json['comment_body'] as String? ?? '',
+      parentBody: json['parent_body'] as String? ?? '',
+      author: authorJson == null ? null : FriendSummary.fromJson(authorJson),
     );
   }
 }

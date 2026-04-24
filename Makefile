@@ -3,7 +3,7 @@ GOCACHE_DIR=$(CURDIR)/.gocache
 API_BASE_URL?=http://localhost:8080
 IOS_API_BASE_URL?=http://localhost:8080
 ANDROID_API_BASE_URL?=http://10.0.2.2:8080
-IOS_DEVICE_NAME?=iPhone 17
+IOS_DEVICE_NAME?=iPhone 16
 
 .PHONY: help run api infra-up infra-down infra-logs api-logs migrate-logs migrate-up migrate-down migrate-status migrate-create swagger test fmt mobile-get mobile-run mobile-run-ios mobile-run-android
 .PHONY: mobile-open-ios mobile-open-android mobile-devices
@@ -55,16 +55,16 @@ migrate-logs:
 	docker compose logs migrate
 
 migrate-up:
-	docker compose run --rm migrate up
+	docker compose run --build --rm migrate up
 
 migrate-down:
-	docker compose run --rm migrate down
+	docker compose run --build --rm migrate down
 
 migrate-status:
-	docker compose run --rm migrate status
+	docker compose run --build --rm migrate status
 
 migrate-create:
-	docker compose run --rm migrate create $(name) sql
+	docker compose run --build --rm migrate create $(name) sql
 
 swagger:
 	$(shell go env GOPATH)/bin/swag init -g main.go -d cmd/api,internal -o docs/swagger

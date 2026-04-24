@@ -90,7 +90,8 @@ func (r *PostgresRepository) UpsertProfile(ctx context.Context, profile domain.P
 			AvatarURL:    profile.AvatarURL,
 			City:         profile.City,
 			Country:      profile.Country,
-			SkillLevel:   profile.SkillLevel,
+			Gender:       profile.Gender,
+			HobbiesText:  profile.HobbiesText,
 			Visible:      profile.Visible,
 			LastModified: profile.LastModified,
 		}
@@ -103,7 +104,8 @@ func (r *PostgresRepository) UpsertProfile(ctx context.Context, profile domain.P
 				"avatar_url",
 				"city",
 				"country",
-				"skill_level",
+				"gender",
+				"hobbies_text",
 				"visible",
 				"last_modified",
 			}),
@@ -111,26 +113,10 @@ func (r *PostgresRepository) UpsertProfile(ctx context.Context, profile domain.P
 			return err
 		}
 
-		if err := tx.Where("user_id = ?", profile.UserID).Delete(&userSportModel{}).Error; err != nil {
+		if err := tx.Model(&userModel{}).
+			Where("id = ?", profile.UserID).
+			Update("profile_complete", true).Error; err != nil {
 			return err
-		}
-
-		sports := make([]userSportModel, 0, len(profile.Sports))
-		for _, sport := range profile.Sports {
-			sport = strings.TrimSpace(sport)
-			if sport == "" {
-				continue
-			}
-			sports = append(sports, userSportModel{
-				UserID:    profile.UserID,
-				SportName: sport,
-			})
-		}
-
-		if len(sports) > 0 {
-			if err := tx.Create(&sports).Error; err != nil {
-				return err
-			}
 		}
 
 		return nil
@@ -146,21 +132,73 @@ func (r *PostgresRepository) GetProfile(ctx context.Context, userID string) (dom
 		return domain.Profile{}, err
 	}
 
-	var sports []userSportModel
-	if err := r.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Order("sport_name ASC").
-		Find(&sports).Error; err != nil {
-		return domain.Profile{}, err
+	return mapProfileModel(model), nil
+}
+
+func (r *PostgresRepository) GetPublicProfile(ctx context.Context, actorUserID, targetUserID string) (domain.PublicProfile, error) {
+	type publicProfileRow struct {
+		UserID           string
+		Username         string
+		DisplayName      string
+		AvatarURL        string
+		City             string
+		Country          string
+		Bio              string
+		Gender           string
+		HobbiesText      string
+		Visible          bool
+		FriendshipStatus string
+		RequesterUserID  string
 	}
 
-	profile := mapProfileModel(model)
-	profile.Sports = make([]string, 0, len(sports))
-	for _, sport := range sports {
-		profile.Sports = append(profile.Sports, sport.SportName)
+	var row publicProfileRow
+	result := r.db.WithContext(ctx).
+		Table("users").
+		Select(`
+			users.id AS user_id,
+			users.username,
+			user_profiles.display_name,
+			user_profiles.avatar_url,
+			user_profiles.city,
+			user_profiles.country,
+			user_profiles.bio,
+			user_profiles.gender,
+			user_profiles.hobbies_text,
+			user_profiles.visible,
+			COALESCE(friendships.status, '') AS friendship_status,
+			COALESCE(friendships.requester_user_id, '') AS requester_user_id
+		`).
+		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
+		Joins(`
+			LEFT JOIN friendships ON (
+				(friendships.requester_user_id = ? AND friendships.addressee_user_id = users.id)
+				OR
+				(friendships.addressee_user_id = ? AND friendships.requester_user_id = users.id)
+			)
+		`, actorUserID, actorUserID).
+		Where("users.id = ?", targetUserID).
+		Limit(1).
+		Scan(&row)
+	if result.Error != nil {
+		return domain.PublicProfile{}, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.PublicProfile{}, errors.New("profile not found")
 	}
 
-	return profile, nil
+	return domain.PublicProfile{
+		UserID:           row.UserID,
+		Username:         row.Username,
+		DisplayName:      row.DisplayName,
+		AvatarURL:        row.AvatarURL,
+		City:             row.City,
+		Country:          row.Country,
+		Bio:              row.Bio,
+		Gender:           row.Gender,
+		HobbiesText:      row.HobbiesText,
+		Visible:          row.Visible,
+		ConnectionStatus: toConnectionStatus(row.FriendshipStatus, row.RequesterUserID, actorUserID),
+	}, nil
 }
 
 func (r *PostgresRepository) SearchUsers(ctx context.Context, query string, limit int, excludeUserID string) ([]domain.SearchResult, error) {
@@ -423,7 +461,8 @@ func mapProfileModel(model profileModel) domain.Profile {
 		AvatarURL:    model.AvatarURL,
 		City:         model.City,
 		Country:      model.Country,
-		SkillLevel:   model.SkillLevel,
+		Gender:       model.Gender,
+		HobbiesText:  model.HobbiesText,
 		Visible:      model.Visible,
 		LastModified: model.LastModified,
 	}

@@ -1,18 +1,7 @@
 # Challenge And Ranking Design
 
-Challenges turn matches and friend connections into real-world sport activity.
+This document is now a legacy placeholder from the pre-pivot scope.
 
-Planned challenge flow:
-1. Create challenge
-2. Accept or decline
-3. Play the sport
-4. Record winner
-5. Confirm result
-6. Award rank points
-7. Optionally post to feed
+Challenge and ranking systems are not owned by FaceOff Social.
 
-Ranking dimensions:
-- by sport
-- by barangay
-- by city
-- by country
+If they return later, they should be designed as part of the separate game domain and only mirrored into Social as summaries when needed.
