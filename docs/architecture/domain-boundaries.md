@@ -8,7 +8,7 @@ Owns:
 - login
 - session issuance
 - base profile data
-- public player identity metadata
+- public user identity metadata
 
 Should remain social-platform focused and not absorb full fighter-creation state.
 
@@ -38,12 +38,6 @@ Owns:
 - in-app notification fanout
 - read state
 - future notification taxonomy for social and game-linked summaries
-
-## Sport
-
-Currently owns the legacy onboarding catalog support still present in the app.
-
-This module is no longer the strategic center of the product and should be revisited later. It may be reduced, repurposed, or removed depending on the final character-creation flow.
 
 ## Future External Game Boundary
 

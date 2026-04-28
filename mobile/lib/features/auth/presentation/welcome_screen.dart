@@ -60,16 +60,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.xl + AppSpacing.sm),
                 RichText(
                   text: TextSpan(
-                    style: textTheme.displaySmall?.copyWith(
-                      height: AppTypography.heroLineHeight,
-                    ),
+                    style: textTheme.displaySmall?.copyWith(height: 1.08),
                     children: const [
-                      TextSpan(text: 'Play what\n'),
+                      TextSpan(text: 'Your game.\n'),
                       TextSpan(
-                        text: 'you love.',
+                        text: 'Your people.',
                         style: TextStyle(color: AppColors.accentStrong),
                       ),
                     ],
@@ -77,23 +75,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'Any game. Any court.\nAnytime.',
+                  'Post updates, chat with friends, and stay close to your court community.',
                   style: textTheme.bodyMedium?.copyWith(
-                    fontSize: AppTypography.helper,
+                    fontSize: 14,
                     fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Center(
-                  child: SizedBox(
-                    height: screenHeight * AppSizes.welcomeImageHeightFactor,
-                    child: Image.asset(
-                      'assets/images/welcome.jpeg',
-                      fit: BoxFit.contain,
-                    ),
+                    height: 1.45,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
+                Expanded(
+                  child: Center(
+                    child: Transform.translate(
+                      offset: const Offset(0, -10),
+                      child: SizedBox(
+                        height: screenHeight * 0.5,
+                        child: Image.asset(
+                          'assets/images/welcome.png',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 FilledButton(
                   onPressed: () =>
                       Navigator.of(context).pushNamed(AppRoute.signUp.path),
@@ -115,28 +118,24 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ignoring: true,
               child: AnimatedOpacity(
                 opacity: _showSuccessPill ? 1 : 0,
-                duration: AppMotion.fast,
+                duration: const Duration(milliseconds: 180),
                 child: AnimatedSlide(
-                  offset: _showSuccessPill
-                      ? Offset.zero
-                      : const Offset(
-                          AppSizes.successPillHiddenOffsetX,
-                          AppSizes.successPillHiddenOffsetY,
-                        ),
-                  duration: AppMotion.fast,
+                  offset:
+                      _showSuccessPill ? Offset.zero : const Offset(0.15, -0.2),
+                  duration: const Duration(milliseconds: 180),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.md,
                       vertical: AppSpacing.sm,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.success,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      color: const Color(0xFF16A34A),
+                      borderRadius: BorderRadius.circular(999),
                       boxShadow: const [
                         BoxShadow(
-                          color: AppColors.shadowMedium,
-                          blurRadius: AppSizes.successPillShadowBlur,
-                          offset: Offset(0, AppSizes.successPillShadowOffsetY),
+                          color: Color(0x1F000000),
+                          blurRadius: 16,
+                          offset: Offset(0, 8),
                         ),
                       ],
                     ),

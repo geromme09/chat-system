@@ -5,11 +5,11 @@ FaceOff Social is the social platform layer for the broader FaceOff ecosystem.
 It is responsible for:
 
 - account registration and login
-- player profile and identity
+- user profile and identity
 - friend graph
 - direct chat
 - notifications
-- mobile companion experience for player social features
+- mobile companion experience for social features
 
 It is not the fighting game client itself. The planned game experience will authenticate through FaceOff Social and may later publish selected character summaries back into the social app.
 
@@ -20,7 +20,7 @@ It is not the fighting game client itself. The planned game experience will auth
 
 ## Product Role
 
-FaceOff Social is the player-facing social service that sits beside the future FaceOff game layer.
+FaceOff Social is the user-facing social service that sits beside the future FaceOff game layer.
 
 Current direction:
 
@@ -60,7 +60,7 @@ Already polished enough for the current phase:
 
 Before FaceOff Social is a solid long-term platform for the game ecosystem, we still need:
 
-- clearer public player card / player identity surface
+- clearer public user card / identity surface
 - stable profile fields that are useful outside chat
 - game-facing identity integration plan
 - selected fighter summary display in profile once the game exists
@@ -97,6 +97,31 @@ FaceOff Social may display game-owned data, but it should not become the source 
 └── mobile/       # Flutter mobile shell
 ```
 
+## Current Tech Stack
+
+- Backend: Go 1.25
+- HTTP API: standard library `net/http`
+- Database: PostgreSQL
+- ORM: GORM
+- Cache / realtime support: Redis
+- Messaging infra: RabbitMQ
+- Object storage: MinIO locally, through an S3-compatible storage adapter
+- Mobile app: Flutter
+- Local orchestration: Docker Compose
+- API docs: Swagger / OpenAPI
+
+Messaging note:
+
+- RabbitMQ is part of the local infrastructure and target architecture
+- current application event publishing still uses a `NoopPublisher`
+- realtime chat and notification updates currently flow through the WebSocket hub, not RabbitMQ
+
+## Architecture Docs
+
+- System overview: [docs/architecture/system-overview.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/system-overview.md)
+- Domain boundaries: [docs/architecture/domain-boundaries.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/domain-boundaries.md)
+- Architecture diagrams: [docs/architecture/architecture-diagrams.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/architecture-diagrams.md)
+
 ## Backend Quick Start
 
 To start the full local stack:
@@ -130,8 +155,17 @@ HTTP_ADDR=:8080
 TOKEN_SECRET=change-me
 POSTGRES_DSN=postgres://postgres:postgres@localhost:5432/chat_system?sslmode=disable
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+REDIS_ADDR=localhost:6379
 STORAGE_BASE_URL=http://localhost:8080
-STORAGE_LOCAL_DIR=var/storage
+STORAGE_DRIVER=s3
+STORAGE_PUBLIC_BASE_URL=http://localhost:9000
+STORAGE_S3_ENDPOINT=localhost:9000
+STORAGE_S3_ACCESS_KEY=minioadmin
+STORAGE_S3_SECRET_KEY=minioadmin
+STORAGE_S3_REGION=us-east-1
+STORAGE_S3_USE_SSL=false
+STORAGE_S3_PROFILE_BUCKET=profile-media
+STORAGE_S3_POST_BUCKET=post-media
 ```
 
 ## Local Infrastructure With Docker
@@ -143,6 +177,16 @@ make infra-logs
 make api-logs
 make migrate-logs
 ```
+
+Local service ports:
+
+- API: `http://localhost:8080`
+- MinIO API: `http://localhost:9000`
+- MinIO Console: `http://localhost:9001`
+- Postgres: `localhost:5432`
+- Redis: `localhost:6379`
+- RabbitMQ: `localhost:5672`
+- RabbitMQ Console: `http://localhost:15672`
 
 ## Migrations
 
@@ -172,6 +216,44 @@ Override the API host when needed:
 ```bash
 make mobile-run API_BASE_URL=http://<your-machine-ip>:8080
 ```
+
+## Media Storage
+
+Current media flow:
+
+- mobile sends avatar and post images to the backend using `multipart/form-data`
+- backend validates the uploaded bytes as real images
+- backend uploads image bytes to MinIO through the S3-compatible storage adapter
+- backend stores media metadata in PostgreSQL
+- backend rebuilds public image URLs from stored metadata on reads
+
+What is stored in MinIO:
+
+- the actual image bytes
+- object bucket
+- object key
+- object content type
+
+What is stored in PostgreSQL:
+
+- profile avatars: `user_profiles.avatar_bucket`, `user_profiles.avatar_key`, `user_profiles.avatar_type`
+- post media: `feed_media.bucket`, `feed_media.object_key`, `feed_media.content_type`
+
+Current bucket layout:
+
+- `profile-media`
+- `post-media`
+
+Example object keys:
+
+- `profiles/{userID}/avatar/{uuid}.jpg`
+- `posts/{uuid}.png`
+
+Notes:
+
+- MinIO is the local object storage server
+- the application uses a generic `s3` storage driver, so AWS S3 migration is config-driven
+- legacy URL columns still exist as read fallback for older rows during transition
 
 ## Current API Surface
 

@@ -7,7 +7,7 @@ This repository is now the backend and mobile shell for **FaceOff Social**.
 FaceOff Social is the social platform layer for the FaceOff ecosystem. It owns:
 
 - account identity
-- player profile
+- user profile
 - friend graph
 - chat
 - notifications
@@ -42,13 +42,13 @@ Current local stack:
 Planned ecosystem split:
 
 - `FaceOff Social`
-  This repo. Source of truth for social identity and player relationships.
+  This repo. Source of truth for social identity and user relationships.
 - future game client and game services
   Separate game domain responsible for fighter creation, combat, ranking, matchmaking, and match outcomes.
 
 Expected integration direction:
 
-- players authenticate into the game using FaceOff Social credentials or trusted session exchange
+- users authenticate into the game using FaceOff Social credentials or trusted session exchange
 - the game stores game-owned fighter and combat data
 - FaceOff Social may display a selected fighter summary and rank summary provided by the game domain
 
@@ -91,7 +91,7 @@ Built and working:
 Not yet built but now strategically important:
 
 - game integration contract
-- public player card suitable for game-linked identity
+- public user card suitable for game-linked identity
 - selected character summary on profile
 - rank summary display sourced from game results
 - social challenge / invite patterns for future matches
