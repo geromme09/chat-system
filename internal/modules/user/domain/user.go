@@ -37,6 +37,9 @@ type Profile struct {
 	DisplayName  string    `json:"display_name"`
 	Bio          string    `json:"bio"`
 	AvatarURL    string    `json:"avatar_url"`
+	AvatarBucket string    `json:"-"`
+	AvatarKey    string    `json:"-"`
+	AvatarType   string    `json:"-"`
 	City         string    `json:"city"`
 	Country      string    `json:"country"`
 	Gender       string    `json:"gender"`
@@ -50,6 +53,8 @@ type SearchResult struct {
 	Username         string `json:"username"`
 	DisplayName      string `json:"display_name"`
 	AvatarURL        string `json:"avatar_url"`
+	AvatarBucket     string `json:"-"`
+	AvatarKey        string `json:"-"`
 	City             string `json:"city"`
 	ConnectionStatus string `json:"connection_status"`
 }
@@ -59,6 +64,8 @@ type PublicProfile struct {
 	Username         string `json:"username"`
 	DisplayName      string `json:"display_name"`
 	AvatarURL        string `json:"avatar_url"`
+	AvatarBucket     string `json:"-"`
+	AvatarKey        string `json:"-"`
 	City             string `json:"city"`
 	Country          string `json:"country"`
 	Bio              string `json:"bio"`
@@ -81,11 +88,13 @@ type FriendRequest struct {
 }
 
 type UserCard struct {
-	UserID      string `json:"user_id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AvatarURL   string `json:"avatar_url"`
-	City        string `json:"city"`
+	UserID       string `json:"user_id"`
+	Username     string `json:"username"`
+	DisplayName  string `json:"display_name"`
+	AvatarURL    string `json:"avatar_url"`
+	AvatarBucket string `json:"-"`
+	AvatarKey    string `json:"-"`
+	City         string `json:"city"`
 }
 
 type FriendsPage struct {

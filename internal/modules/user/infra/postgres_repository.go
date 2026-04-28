@@ -7,16 +7,18 @@ import (
 	"time"
 
 	"github.com/geromme09/chat-system/internal/modules/user/domain"
+	"github.com/geromme09/chat-system/internal/platform/storage"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type PostgresRepository struct {
-	db *gorm.DB
+	db      *gorm.DB
+	storage storage.Service
 }
 
-func NewPostgresRepository(db *gorm.DB) *PostgresRepository {
-	return &PostgresRepository{db: db}
+func NewPostgresRepository(db *gorm.DB, mediaStorage storage.Service) *PostgresRepository {
+	return &PostgresRepository{db: db, storage: mediaStorage}
 }
 
 func (r *PostgresRepository) CreateUser(ctx context.Context, user domain.User) error {
@@ -87,7 +89,10 @@ func (r *PostgresRepository) UpsertProfile(ctx context.Context, profile domain.P
 			UserID:       profile.UserID,
 			DisplayName:  profile.DisplayName,
 			Bio:          profile.Bio,
-			AvatarURL:    profile.AvatarURL,
+			AvatarURL:    legacyAvatarURL(profile),
+			AvatarBucket: profile.AvatarBucket,
+			AvatarKey:    profile.AvatarKey,
+			AvatarType:   profile.AvatarType,
 			City:         profile.City,
 			Country:      profile.Country,
 			Gender:       profile.Gender,
@@ -102,6 +107,9 @@ func (r *PostgresRepository) UpsertProfile(ctx context.Context, profile domain.P
 				"display_name",
 				"bio",
 				"avatar_url",
+				"avatar_bucket",
+				"avatar_key",
+				"avatar_type",
 				"city",
 				"country",
 				"gender",
@@ -132,7 +140,7 @@ func (r *PostgresRepository) GetProfile(ctx context.Context, userID string) (dom
 		return domain.Profile{}, err
 	}
 
-	return mapProfileModel(model), nil
+	return r.mapProfileModel(model), nil
 }
 
 func (r *PostgresRepository) GetPublicProfile(ctx context.Context, actorUserID, targetUserID string) (domain.PublicProfile, error) {
@@ -141,6 +149,8 @@ func (r *PostgresRepository) GetPublicProfile(ctx context.Context, actorUserID, 
 		Username         string
 		DisplayName      string
 		AvatarURL        string
+		AvatarBucket     string
+		AvatarKey        string
 		City             string
 		Country          string
 		Bio              string
@@ -159,6 +169,8 @@ func (r *PostgresRepository) GetPublicProfile(ctx context.Context, actorUserID, 
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city,
 			user_profiles.country,
 			user_profiles.bio,
@@ -190,7 +202,9 @@ func (r *PostgresRepository) GetPublicProfile(ctx context.Context, actorUserID, 
 		UserID:           row.UserID,
 		Username:         row.Username,
 		DisplayName:      row.DisplayName,
-		AvatarURL:        row.AvatarURL,
+		AvatarURL:        r.publicURL(row.AvatarURL, row.AvatarBucket, row.AvatarKey),
+		AvatarBucket:     row.AvatarBucket,
+		AvatarKey:        row.AvatarKey,
 		City:             row.City,
 		Country:          row.Country,
 		Bio:              row.Bio,
@@ -216,6 +230,8 @@ func (r *PostgresRepository) SearchUsers(ctx context.Context, query string, limi
 		Username         string
 		DisplayName      string
 		AvatarURL        string
+		AvatarBucket     string
+		AvatarKey        string
 		City             string
 		FriendshipStatus string
 		RequesterUserID  string
@@ -229,6 +245,8 @@ func (r *PostgresRepository) SearchUsers(ctx context.Context, query string, limi
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city,
 			friendships.status AS friendship_status,
 			friendships.requester_user_id
@@ -271,7 +289,9 @@ func (r *PostgresRepository) SearchUsers(ctx context.Context, query string, limi
 			UserID:           row.UserID,
 			Username:         row.Username,
 			DisplayName:      row.DisplayName,
-			AvatarURL:        row.AvatarURL,
+			AvatarURL:        r.publicURL(row.AvatarURL, row.AvatarBucket, row.AvatarKey),
+			AvatarBucket:     row.AvatarBucket,
+			AvatarKey:        row.AvatarKey,
 			City:             row.City,
 			ConnectionStatus: toConnectionStatus(row.FriendshipStatus, row.RequesterUserID, excludeUserID),
 		})
@@ -392,11 +412,13 @@ func (r *PostgresRepository) MarkIncomingFriendRequestsSeen(ctx context.Context,
 
 func (r *PostgresRepository) ListFriends(ctx context.Context, userID string, offset, limit int) ([]domain.UserCard, error) {
 	type friendRow struct {
-		UserID      string
-		Username    string
-		DisplayName string
-		AvatarURL   string
-		City        string
+		UserID       string
+		Username     string
+		DisplayName  string
+		AvatarURL    string
+		AvatarBucket string
+		AvatarKey    string
+		City         string
 	}
 
 	rows := make([]friendRow, 0)
@@ -407,6 +429,8 @@ func (r *PostgresRepository) ListFriends(ctx context.Context, userID string, off
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city
 		`).
 		Joins(`
@@ -428,11 +452,13 @@ func (r *PostgresRepository) ListFriends(ctx context.Context, userID string, off
 	results := make([]domain.UserCard, 0, len(rows))
 	for _, row := range rows {
 		results = append(results, domain.UserCard{
-			UserID:      row.UserID,
-			Username:    row.Username,
-			DisplayName: row.DisplayName,
-			AvatarURL:   row.AvatarURL,
-			City:        row.City,
+			UserID:       row.UserID,
+			Username:     row.Username,
+			DisplayName:  row.DisplayName,
+			AvatarURL:    r.publicURL(row.AvatarURL, row.AvatarBucket, row.AvatarKey),
+			AvatarBucket: row.AvatarBucket,
+			AvatarKey:    row.AvatarKey,
+			City:         row.City,
 		})
 	}
 
@@ -453,12 +479,15 @@ func mapUserModel(model userModel) domain.User {
 	}
 }
 
-func mapProfileModel(model profileModel) domain.Profile {
+func (r *PostgresRepository) mapProfileModel(model profileModel) domain.Profile {
 	return domain.Profile{
 		UserID:       model.UserID,
 		DisplayName:  model.DisplayName,
 		Bio:          model.Bio,
-		AvatarURL:    model.AvatarURL,
+		AvatarURL:    rPublicURL(r, model.AvatarURL, model.AvatarBucket, model.AvatarKey),
+		AvatarBucket: model.AvatarBucket,
+		AvatarKey:    model.AvatarKey,
+		AvatarType:   model.AvatarType,
 		City:         model.City,
 		Country:      model.Country,
 		Gender:       model.Gender,
@@ -494,17 +523,19 @@ func (r *PostgresRepository) getFriendRequestDetails(ctx context.Context, model 
 
 func (r *PostgresRepository) getUserCard(ctx context.Context, userID string) (domain.UserCard, error) {
 	type cardRow struct {
-		UserID      string
-		Username    string
-		DisplayName string
-		AvatarURL   string
-		City        string
+		UserID       string
+		Username     string
+		DisplayName  string
+		AvatarURL    string
+		AvatarBucket string
+		AvatarKey    string
+		City         string
 	}
 
 	var row cardRow
 	result := r.db.WithContext(ctx).
 		Table("users").
-		Select("users.id AS user_id, users.username, user_profiles.display_name, user_profiles.avatar_url, user_profiles.city").
+		Select("users.id AS user_id, users.username, user_profiles.display_name, user_profiles.avatar_url, COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket, COALESCE(user_profiles.avatar_key, '') AS avatar_key, user_profiles.city").
 		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
 		Where("users.id = ?", userID).
 		Limit(1).
@@ -517,10 +548,33 @@ func (r *PostgresRepository) getUserCard(ctx context.Context, userID string) (do
 	}
 
 	return domain.UserCard{
-		UserID:      row.UserID,
-		Username:    row.Username,
-		DisplayName: row.DisplayName,
-		AvatarURL:   row.AvatarURL,
-		City:        row.City,
+		UserID:       row.UserID,
+		Username:     row.Username,
+		DisplayName:  row.DisplayName,
+		AvatarURL:    r.publicURL(row.AvatarURL, row.AvatarBucket, row.AvatarKey),
+		AvatarBucket: row.AvatarBucket,
+		AvatarKey:    row.AvatarKey,
+		City:         row.City,
 	}, nil
+}
+
+func (r *PostgresRepository) publicURL(legacyURL, bucket, key string) string {
+	return rPublicURL(r, legacyURL, bucket, key)
+}
+
+func rPublicURL(r *PostgresRepository, legacyURL, bucket, key string) string {
+	if bucket != "" && key != "" && r != nil && r.storage != nil {
+		return r.storage.PublicURL(storage.ObjectRef{
+			Bucket:    bucket,
+			ObjectKey: key,
+		})
+	}
+	return legacyURL
+}
+
+func legacyAvatarURL(profile domain.Profile) string {
+	if profile.AvatarBucket != "" && profile.AvatarKey != "" {
+		return ""
+	}
+	return profile.AvatarURL
 }

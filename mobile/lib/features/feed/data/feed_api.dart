@@ -124,18 +124,11 @@ class FeedComment {
 class CreateFeedPostRequest {
   const CreateFeedPostRequest({
     required this.caption,
-    this.imageDataUrl = '',
+    this.imagePath = '',
   });
 
   final String caption;
-  final String imageDataUrl;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'caption': caption,
-      'image_data_url': imageDataUrl,
-    };
-  }
+  final String imagePath;
 }
 
 class CreateFeedCommentRequest {
@@ -223,10 +216,14 @@ class FeedApi {
     required String token,
     required CreateFeedPostRequest request,
   }) async {
-    final response = await _client.post(
+    final response = await _client.postMultipart(
       '/api/v1/feed',
       authToken: token,
-      body: request.toJson(),
+      fields: <String, String>{
+        'caption': request.caption,
+      },
+      fileField: request.imagePath.trim().isEmpty ? null : 'image',
+      filePath: request.imagePath.trim().isEmpty ? null : request.imagePath,
     );
 
     final data = response['data'];
@@ -235,6 +232,57 @@ class FeedApi {
     }
 
     return FeedPost.fromJson(data);
+  }
+
+  Future<FeedPost> updatePost({
+    required String token,
+    required String postID,
+    required String caption,
+  }) async {
+    final response = await _client.put(
+      '/api/v1/feed/$postID',
+      authToken: token,
+      body: <String, String>{'caption': caption},
+    );
+
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('Missing feed post payload');
+    }
+
+    return FeedPost.fromJson(data);
+  }
+
+  Future<void> deletePost({
+    required String token,
+    required String postID,
+  }) async {
+    await _client.delete(
+      '/api/v1/feed/$postID',
+      authToken: token,
+    );
+  }
+
+  Future<void> hidePost({
+    required String token,
+    required String postID,
+  }) async {
+    await _client.post(
+      '/api/v1/feed/$postID/hide',
+      authToken: token,
+    );
+  }
+
+  Future<void> reportPost({
+    required String token,
+    required String postID,
+    String reason = 'unspecified',
+  }) async {
+    await _client.post(
+      '/api/v1/feed/$postID/report',
+      authToken: token,
+      body: <String, String>{'reason': reason},
+    );
   }
 
   Future<FeedPost> toggleReaction({
@@ -283,14 +331,60 @@ class FeedApi {
     );
 
     final data = response['data'];
-    if (data is! List<dynamic>) {
-      throw const FormatException('Missing comments payload');
+    if (data is List<dynamic>) {
+      return data
+          .whereType<Map<String, dynamic>>()
+          .map(FeedComment.fromJson)
+          .toList();
     }
 
-    return data
-        .whereType<Map<String, dynamic>>()
-        .map(FeedComment.fromJson)
-        .toList();
+    if (data is Map<String, dynamic>) {
+      final items = data['items'];
+      if (items is! List<dynamic>) {
+        throw const FormatException('Missing comments items payload');
+      }
+
+      return items
+          .whereType<Map<String, dynamic>>()
+          .map(FeedComment.fromJson)
+          .toList();
+    }
+
+    throw const FormatException('Missing comments payload');
+  }
+
+  Future<FeedPost> likePost({
+    required String token,
+    required String postID,
+  }) async {
+    final response = await _client.post(
+      '/api/v1/feed/$postID/like',
+      authToken: token,
+    );
+
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('Missing feed post payload');
+    }
+
+    return FeedPost.fromJson(data);
+  }
+
+  Future<FeedPost> unlikePost({
+    required String token,
+    required String postID,
+  }) async {
+    final response = await _client.delete(
+      '/api/v1/feed/$postID/like',
+      authToken: token,
+    );
+
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('Missing feed post payload');
+    }
+
+    return FeedPost.fromJson(data);
   }
 
   Future<FeedComment> createComment({

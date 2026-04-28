@@ -20,6 +20,7 @@ func NewHandler(service *notificationapp.Service) *Handler {
 	return &Handler{service: service}
 }
 
+// Serve handles notification listing and read state.
 func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {

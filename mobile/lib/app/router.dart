@@ -6,6 +6,7 @@ import '../features/auth/presentation/welcome_screen.dart';
 import '../features/chat/presentation/chat_conversation_screen.dart';
 import '../features/chat/presentation/chat_home_screen.dart';
 import '../features/home/presentation/home_shell_screen.dart';
+import '../features/profile/presentation/account_settings_screen.dart';
 import '../features/profile/presentation/profile_setup_screen.dart';
 
 enum AppRoute {
@@ -13,6 +14,7 @@ enum AppRoute {
   signUp('/sign-up'),
   login('/login'),
   profileSetup('/profile-setup'),
+  accountSettings('/account-settings'),
   appHome('/home'),
   chatConversation('/chat-conversation'),
   chatHome('/chat-home');
@@ -49,6 +51,11 @@ class AppRouter {
       case '/profile-setup':
         return _buildRoute<void>(
           builder: (_) => const ProfileSetupScreen(),
+          settings: settings,
+        );
+      case '/account-settings':
+        return _buildRoute<void>(
+          builder: (_) => const AccountSettingsScreen(),
           settings: settings,
         );
       case '/home':

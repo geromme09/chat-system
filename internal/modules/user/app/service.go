@@ -20,14 +20,14 @@ var ErrDuplicateFriendRequest = errors.New("friend request already exists")
 var usernamePattern = regexp.MustCompile(`^[a-z0-9_]{3,20}$`)
 
 type SignUpInput struct {
-	Email          string `json:"email" validate:"required"`
-	Username       string `json:"username" validate:"required"`
-	Password       string `json:"password" validate:"required,min=8"`
-	DisplayName    string `json:"display_name" validate:"required"`
-	Bio            string `json:"bio"`
-	AvatarFileName string `json:"avatar_file_name"`
-	City           string `json:"city"`
-	Country        string `json:"country"`
+	Email         string `json:"email" validate:"required"`
+	Username      string `json:"username" validate:"required"`
+	Password      string `json:"password" validate:"required,min=8"`
+	DisplayName   string `json:"display_name" validate:"required"`
+	Bio           string `json:"bio"`
+	AvatarDataURL string `json:"avatar_data_url"`
+	City          string `json:"city"`
+	Country       string `json:"country"`
 }
 
 type LoginInput struct {
@@ -36,14 +36,14 @@ type LoginInput struct {
 }
 
 type UpdateProfileInput struct {
-	DisplayName    string `json:"display_name" validate:"required"`
-	Bio            string `json:"bio"`
-	AvatarFileName string `json:"avatar_file_name"`
-	City           string `json:"city"`
-	Country        string `json:"country"`
-	Gender         string `json:"gender"`
-	HobbiesText    string `json:"hobbies_text"`
-	Visible        bool   `json:"visible"`
+	DisplayName   string `json:"display_name" validate:"required"`
+	Bio           string `json:"bio"`
+	AvatarDataURL string `json:"avatar_data_url"`
+	City          string `json:"city"`
+	Country       string `json:"country"`
+	Gender        string `json:"gender"`
+	HobbiesText   string `json:"hobbies_text"`
+	Visible       bool   `json:"visible"`
 }
 
 type AuthResult struct {
@@ -136,13 +136,22 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 		UserID:       userID,
 		DisplayName:  strings.TrimSpace(input.DisplayName),
 		Bio:          strings.TrimSpace(input.Bio),
-		AvatarURL:    s.storage.AvatarURL(strings.TrimSpace(input.AvatarFileName)),
 		City:         strings.TrimSpace(input.City),
 		Country:      strings.TrimSpace(input.Country),
 		Gender:       "",
 		HobbiesText:  "",
 		Visible:      true,
 		LastModified: now,
+	}
+	if strings.TrimSpace(input.AvatarDataURL) != "" {
+		avatarRef, err := s.storage.SaveAvatarDataURL(ctx, userID, input.AvatarDataURL)
+		if err != nil {
+			return AuthResult{}, err
+		}
+		profile.AvatarURL = s.storage.PublicURL(avatarRef)
+		profile.AvatarBucket = avatarRef.Bucket
+		profile.AvatarKey = avatarRef.ObjectKey
+		profile.AvatarType = avatarRef.ContentType
 	}
 
 	if err := s.repo.CreateUser(ctx, user); err != nil {
@@ -377,8 +386,19 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, input Update
 
 	current.DisplayName = strings.TrimSpace(input.DisplayName)
 	current.Bio = strings.TrimSpace(input.Bio)
-	if strings.TrimSpace(input.AvatarFileName) != "" {
-		current.AvatarURL = s.storage.AvatarURL(strings.TrimSpace(input.AvatarFileName))
+	previousAvatar := storage.ObjectRef{
+		Bucket:    current.AvatarBucket,
+		ObjectKey: current.AvatarKey,
+	}
+	if strings.TrimSpace(input.AvatarDataURL) != "" {
+		avatarRef, err := s.storage.SaveAvatarDataURL(ctx, userID, input.AvatarDataURL)
+		if err != nil {
+			return domain.Profile{}, err
+		}
+		current.AvatarURL = s.storage.PublicURL(avatarRef)
+		current.AvatarBucket = avatarRef.Bucket
+		current.AvatarKey = avatarRef.ObjectKey
+		current.AvatarType = avatarRef.ContentType
 	}
 	current.City = strings.TrimSpace(input.City)
 	current.Country = strings.TrimSpace(input.Country)
@@ -389,6 +409,12 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, input Update
 
 	if err := s.repo.UpsertProfile(ctx, current); err != nil {
 		return domain.Profile{}, err
+	}
+	if s.storage != nil &&
+		previousAvatar.ObjectKey != "" &&
+		(previousAvatar.Bucket != current.AvatarBucket ||
+			previousAvatar.ObjectKey != current.AvatarKey) {
+		_ = s.storage.DeleteObject(ctx, previousAvatar)
 	}
 
 	return current, nil

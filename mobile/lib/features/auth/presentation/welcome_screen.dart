@@ -63,7 +63,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 const SizedBox(height: AppSpacing.xl),
                 RichText(
                   text: TextSpan(
-                    style: textTheme.displaySmall?.copyWith(height: 1.08),
+                    style: textTheme.displaySmall?.copyWith(
+                      height: AppTypography.heroLineHeight,
+                    ),
                     children: const [
                       TextSpan(text: 'Play what\n'),
                       TextSpan(
@@ -77,16 +79,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 Text(
                   'Any game. Any court.\nAnytime.',
                   style: textTheme.bodyMedium?.copyWith(
-                    fontSize: 13,
+                    fontSize: AppTypography.helper,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Center(
                   child: SizedBox(
-                    height: screenHeight * 0.38,
+                    height: screenHeight * AppSizes.welcomeImageHeightFactor,
                     child: Image.asset(
-                      'assets/images/welcome.png',
+                      'assets/images/welcome.jpeg',
                       fit: BoxFit.contain,
                     ),
                   ),
@@ -113,24 +115,28 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ignoring: true,
               child: AnimatedOpacity(
                 opacity: _showSuccessPill ? 1 : 0,
-                duration: const Duration(milliseconds: 180),
+                duration: AppMotion.fast,
                 child: AnimatedSlide(
-                  offset:
-                      _showSuccessPill ? Offset.zero : const Offset(0.15, -0.2),
-                  duration: const Duration(milliseconds: 180),
+                  offset: _showSuccessPill
+                      ? Offset.zero
+                      : const Offset(
+                          AppSizes.successPillHiddenOffsetX,
+                          AppSizes.successPillHiddenOffsetY,
+                        ),
+                  duration: AppMotion.fast,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.md,
                       vertical: AppSpacing.sm,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF16A34A),
-                      borderRadius: BorderRadius.circular(999),
+                      color: AppColors.success,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
                       boxShadow: const [
                         BoxShadow(
-                          color: Color(0x1F000000),
-                          blurRadius: 16,
-                          offset: Offset(0, 8),
+                          color: AppColors.shadowMedium,
+                          blurRadius: AppSizes.successPillShadowBlur,
+                          offset: Offset(0, AppSizes.successPillShadowOffsetY),
                         ),
                       ],
                     ),

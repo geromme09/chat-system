@@ -23,6 +23,9 @@ type profileModel struct {
 	DisplayName  string
 	Bio          string
 	AvatarURL    string
+	AvatarBucket string
+	AvatarKey    string
+	AvatarType   string
 	City         string
 	Country      string
 	Gender       string

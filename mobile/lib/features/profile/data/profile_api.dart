@@ -11,7 +11,7 @@ class UpdateProfileRequest {
     required this.gender,
     required this.hobbiesText,
     required this.visible,
-    this.avatarFileName = '',
+    this.avatarPath = '',
   });
 
   final String displayName;
@@ -21,20 +21,7 @@ class UpdateProfileRequest {
   final String gender;
   final String hobbiesText;
   final bool visible;
-  final String avatarFileName;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'display_name': displayName,
-      'bio': bio,
-      'avatar_file_name': avatarFileName,
-      'city': city,
-      'country': country,
-      'gender': gender,
-      'hobbies_text': hobbiesText,
-      'visible': visible,
-    };
-  }
+  final String avatarPath;
 }
 
 class PublicProfile {
@@ -92,10 +79,20 @@ class ProfileApi {
     required String token,
     required UpdateProfileRequest request,
   }) async {
-    final response = await _client.put(
+    final response = await _client.putMultipart(
       '/api/v1/profile/me',
-      body: request.toJson(),
       authToken: token,
+      fields: <String, String>{
+        'display_name': request.displayName,
+        'bio': request.bio,
+        'city': request.city,
+        'country': request.country,
+        'gender': request.gender,
+        'hobbies_text': request.hobbiesText,
+        'visible': request.visible.toString(),
+      },
+      fileField: request.avatarPath.trim().isEmpty ? null : 'avatar',
+      filePath: request.avatarPath.trim().isEmpty ? null : request.avatarPath,
     );
 
     final data = response['data'];

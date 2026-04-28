@@ -102,8 +102,26 @@ func NewListFriendsHandler(service *app.Service) *ListFriendsHandler {
 // @Router /api/v1/auth/signup [post]
 func (h *SignUpHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	var input app.SignUpInput
-	if err := ctx.DecodeJSON(&input); err != nil {
-		return response.BadRequest(errors.New("invalid request body"))
+	if httpx.IsMultipart(ctx.Request) {
+		if err := httpx.ParseMultipart(ctx.Request); err != nil {
+			return response.BadRequest(errors.New("invalid multipart body"))
+		}
+		input.Email = httpx.FormString(ctx.Request, "email")
+		input.Username = httpx.FormString(ctx.Request, "username")
+		input.Password = httpx.FormString(ctx.Request, "password")
+		input.DisplayName = httpx.FormString(ctx.Request, "display_name")
+		input.Bio = httpx.FormString(ctx.Request, "bio")
+		input.City = httpx.FormString(ctx.Request, "city")
+		input.Country = httpx.FormString(ctx.Request, "country")
+		avatarDataURL, err := httpx.FileDataURL(ctx.Request, "avatar")
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		input.AvatarDataURL = avatarDataURL
+	} else {
+		if err := ctx.DecodeJSON(&input); err != nil {
+			return response.BadRequest(errors.New("invalid request body"))
+		}
 	}
 
 	result, err := h.service.SignUp(ctx.Request.Context(), input)
@@ -148,6 +166,7 @@ func (h *LoginHandler) Serve(ctx httpx.Context) response.ApiResponse {
 // @Success 200 {object} response.ApiResponse
 // @Failure 401 {object} response.ApiResponse
 // @Failure 400 {object} response.ApiResponse
+// @Security BearerAuth
 // @Router /api/v1/profile/me [get]
 func (h *GetMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
@@ -172,6 +191,7 @@ func (h *GetMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 // @Success 200 {object} response.ApiResponse
 // @Failure 401 {object} response.ApiResponse
 // @Failure 400 {object} response.ApiResponse
+// @Security BearerAuth
 // @Router /api/v1/profile/me [put]
 func (h *UpdateMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
@@ -180,8 +200,26 @@ func (h *UpdateMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	}
 
 	var input app.UpdateProfileInput
-	if err := ctx.DecodeJSON(&input); err != nil {
-		return response.BadRequest(errors.New("invalid request body"))
+	if httpx.IsMultipart(ctx.Request) {
+		if err := httpx.ParseMultipart(ctx.Request); err != nil {
+			return response.BadRequest(errors.New("invalid multipart body"))
+		}
+		input.DisplayName = httpx.FormString(ctx.Request, "display_name")
+		input.Bio = httpx.FormString(ctx.Request, "bio")
+		input.City = httpx.FormString(ctx.Request, "city")
+		input.Country = httpx.FormString(ctx.Request, "country")
+		input.Gender = httpx.FormString(ctx.Request, "gender")
+		input.HobbiesText = httpx.FormString(ctx.Request, "hobbies_text")
+		input.Visible = parseBoolFormValue(ctx.Request.FormValue("visible"), true)
+		avatarDataURL, err := httpx.FileDataURL(ctx.Request, "avatar")
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		input.AvatarDataURL = avatarDataURL
+	} else {
+		if err := ctx.DecodeJSON(&input); err != nil {
+			return response.BadRequest(errors.New("invalid request body"))
+		}
 	}
 
 	profile, err := h.service.UpdateProfile(ctx.Request.Context(), userID, input)
@@ -192,13 +230,23 @@ func (h *UpdateMeHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	return response.Ok(profile, nil)
 }
 
+func parseBoolFormValue(value string, fallback bool) bool {
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
 // Serve returns a public profile for the requested user.
 // @Summary Get public profile
 // @Tags profile
 // @Produce json
+// @Param userID path string true "User ID"
 // @Success 200 {object} response.ApiResponse
 // @Failure 401 {object} response.ApiResponse
 // @Failure 400 {object} response.ApiResponse
+// @Security BearerAuth
 // @Router /api/v1/profile/{userID} [get]
 func (h *GetProfileHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	actorUserID, ok := ctx.UserID()
@@ -224,9 +272,12 @@ func (h *GetProfileHandler) Serve(ctx httpx.Context) response.ApiResponse {
 // @Summary Search users
 // @Tags users
 // @Produce json
+// @Param q query string false "Search query"
+// @Param limit query int false "Maximum number of results"
 // @Success 200 {object} response.ApiResponse
 // @Failure 401 {object} response.ApiResponse
 // @Failure 400 {object} response.ApiResponse
+// @Security BearerAuth
 // @Router /api/v1/users/search [get]
 func (h *SearchUsersHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
@@ -247,6 +298,17 @@ func (h *SearchUsersHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	return response.Ok(results, nil)
 }
 
+// Serve sends a friend request.
+// @Summary Send friend request
+// @Tags friends
+// @Accept json
+// @Produce json
+// @Param request body app.SendFriendRequestInput true "Friend request payload"
+// @Success 201 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/friends/requests [post]
 func (h *SendFriendRequestHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -266,6 +328,15 @@ func (h *SendFriendRequestHandler) Serve(ctx httpx.Context) response.ApiResponse
 	return response.Created(friendRequest)
 }
 
+// Serve lists incoming friend requests.
+// @Summary List incoming friend requests
+// @Tags friends
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/friends/requests/incoming [get]
 func (h *IncomingFriendRequestsHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -280,6 +351,7 @@ func (h *IncomingFriendRequestsHandler) Serve(ctx httpx.Context) response.ApiRes
 	return response.Ok(requests, nil)
 }
 
+// Serve accepts or declines a friend request.
 func (h *RespondFriendRequestHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -305,6 +377,17 @@ func (h *RespondFriendRequestHandler) Serve(ctx httpx.Context) response.ApiRespo
 	return response.Ok(friendRequest, nil)
 }
 
+// Serve lists accepted friends.
+// @Summary List friends
+// @Tags friends
+// @Produce json
+// @Param page query int false "Page number"
+// @Param limit query int false "Page size"
+// @Success 200 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/friends [get]
 func (h *ListFriendsHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {

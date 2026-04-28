@@ -27,7 +27,16 @@ type Config struct {
 	RedisPoolSize          int
 	RedisMinIdleConns      int
 	StorageBaseURL         string
+	StorageDriver          string
 	StorageLocalDir        string
+	StoragePublicBaseURL   string
+	StorageS3Endpoint      string
+	StorageS3AccessKey     string
+	StorageS3SecretKey     string
+	StorageS3Region        string
+	StorageS3UseSSL        bool
+	StorageS3ProfileBucket string
+	StorageS3PostBucket    string
 	RateLimitRequestsPerS  int
 	RateLimitBurst         int
 }
@@ -57,7 +66,16 @@ func Load() Config {
 		RedisPoolSize:          getEnvInt("REDIS_POOL_SIZE", 10),
 		RedisMinIdleConns:      getEnvInt("REDIS_MIN_IDLE_CONNS", 2),
 		StorageBaseURL:         getEnv("STORAGE_BASE_URL", "http://localhost:8080"),
+		StorageDriver:          getEnv("STORAGE_DRIVER", "s3"),
 		StorageLocalDir:        getEnv("STORAGE_LOCAL_DIR", "var/storage"),
+		StoragePublicBaseURL:   getEnv("STORAGE_PUBLIC_BASE_URL", "http://localhost:9000"),
+		StorageS3Endpoint:      getEnv("STORAGE_S3_ENDPOINT", "localhost:9000"),
+		StorageS3AccessKey:     getEnv("STORAGE_S3_ACCESS_KEY", "minioadmin"),
+		StorageS3SecretKey:     getEnv("STORAGE_S3_SECRET_KEY", "minioadmin"),
+		StorageS3Region:        getEnv("STORAGE_S3_REGION", "us-east-1"),
+		StorageS3UseSSL:        getEnvBool("STORAGE_S3_USE_SSL", false),
+		StorageS3ProfileBucket: getEnv("STORAGE_S3_PROFILE_BUCKET", "profile-media"),
+		StorageS3PostBucket:    getEnv("STORAGE_S3_POST_BUCKET", "post-media"),
 		RateLimitRequestsPerS:  getEnvInt("RATE_LIMIT_REQUESTS_PER_SECOND", 5),
 		RateLimitBurst:         getEnvInt("RATE_LIMIT_BURST", 15),
 	}

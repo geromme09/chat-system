@@ -4,6 +4,7 @@ class SessionProfile {
   const SessionProfile({
     required this.displayName,
     required this.bio,
+    required this.avatarUrl,
     required this.city,
     required this.country,
     required this.gender,
@@ -13,6 +14,7 @@ class SessionProfile {
 
   final String displayName;
   final String bio;
+  final String avatarUrl;
   final String city;
   final String country;
   final String gender;
@@ -23,6 +25,7 @@ class SessionProfile {
     return SessionProfile(
       displayName: json['display_name'] as String? ?? '',
       bio: json['bio'] as String? ?? '',
+      avatarUrl: json['avatar_url'] as String? ?? '',
       city: json['city'] as String? ?? '',
       country: json['country'] as String? ?? '',
       gender: json['gender'] as String? ?? '',
@@ -34,6 +37,7 @@ class SessionProfile {
   SessionProfile copyWith({
     String? displayName,
     String? bio,
+    String? avatarUrl,
     String? city,
     String? country,
     String? gender,
@@ -43,6 +47,7 @@ class SessionProfile {
     return SessionProfile(
       displayName: displayName ?? this.displayName,
       bio: bio ?? this.bio,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
       city: city ?? this.city,
       country: country ?? this.country,
       gender: gender ?? this.gender,
@@ -55,12 +60,16 @@ class SessionProfile {
 class AppSession extends ChangeNotifier {
   String? _token;
   String? _userID;
+  String? _username;
+  String? _email;
   SessionProfile? _profile;
   bool _profileComplete = false;
   String? _customStatus;
 
   String? get token => _token;
   String? get userID => _userID;
+  String? get username => _username;
+  String? get email => _email;
   SessionProfile? get profile => _profile;
   bool get profileComplete => _profileComplete;
   String? get customStatus => _customStatus;
@@ -71,9 +80,13 @@ class AppSession extends ChangeNotifier {
     required String userID,
     required SessionProfile profile,
     required bool profileComplete,
+    String username = '',
+    String email = '',
   }) {
     _token = token;
     _userID = userID;
+    _username = username;
+    _email = email;
     _profile = profile;
     _profileComplete = profileComplete;
     _customStatus = null;
@@ -94,6 +107,8 @@ class AppSession extends ChangeNotifier {
   void clear() {
     _token = null;
     _userID = null;
+    _username = null;
+    _email = null;
     _profile = null;
     _profileComplete = false;
     _customStatus = null;

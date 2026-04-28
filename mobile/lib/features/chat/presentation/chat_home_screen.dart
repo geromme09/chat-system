@@ -329,7 +329,6 @@ class _ChatHomeScreenState extends State<ChatHomeScreen> {
     }
   }
 
-
   Future<void> _openSearchResult(FriendSearchResult result) async {
     if (result.connectionStatus == FriendConnectionStatus.friends) {
       await _openOrCreateConversation(
@@ -467,7 +466,7 @@ class _UnifiedInboxContent extends StatelessWidget {
           AppSpacing.lg,
           AppSpacing.md,
           AppSpacing.lg,
-          AppSpacing.xl,
+          104,
         ),
         children: [
           Row(
@@ -555,7 +554,7 @@ class _UnifiedInboxContent extends StatelessWidget {
                     onTap: () => onOpenConversation(friendItems[index]),
                   ),
                   if (index != friendItems.length - 1)
-                    const SizedBox(height: 10),
+                    const SizedBox(height: AppSpacing.sm),
                 ],
               ],
             ),

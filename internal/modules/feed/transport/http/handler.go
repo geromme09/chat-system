@@ -29,6 +29,7 @@ func NewHandler(service *feedapp.Service, userService userProfileReader) *Handle
 	}
 }
 
+// Serve handles feed posts, reactions, comments, and replies.
 func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -55,10 +56,37 @@ func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
 			return response.BadRequest(err)
 		}
 		return response.Ok(post, nil)
-	case ctx.Request.Method == "POST" && postID == "" && action == "":
-		var input feedapp.CreatePostInput
+	case (ctx.Request.Method == "PATCH" || ctx.Request.Method == "PUT") && postID != "" && action == "":
+		var input feedapp.UpdatePostInput
 		if err := ctx.DecodeJSON(&input); err != nil {
 			return response.BadRequest(errors.New("invalid request body"))
+		}
+		post, err := h.service.UpdatePost(ctx.Request.Context(), userID, postID, input)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(post, nil)
+	case ctx.Request.Method == "DELETE" && postID != "" && action == "":
+		if err := h.service.DeletePost(ctx.Request.Context(), userID, postID); err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(map[string]bool{"deleted": true}, nil)
+	case ctx.Request.Method == "POST" && postID == "" && action == "":
+		var input feedapp.CreatePostInput
+		if httpx.IsMultipart(ctx.Request) {
+			if err := httpx.ParseMultipart(ctx.Request); err != nil {
+				return response.BadRequest(errors.New("invalid multipart body"))
+			}
+			input.Caption = httpx.FormString(ctx.Request, "caption")
+			imageDataURL, err := httpx.FileDataURL(ctx.Request, "image")
+			if err != nil {
+				return response.BadRequest(err)
+			}
+			input.ImageDataURL = imageDataURL
+		} else {
+			if err := ctx.DecodeJSON(&input); err != nil {
+				return response.BadRequest(errors.New("invalid request body"))
+			}
 		}
 
 		me, err := h.userService.GetMe(ctx.Request.Context(), userID)
@@ -84,9 +112,39 @@ func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
 			return response.BadRequest(err)
 		}
 		return response.Ok(post, nil)
+	case ctx.Request.Method == "POST" && postID != "" && action == "like":
+		post, err := h.service.SetReaction(ctx.Request.Context(), userID, postID, true)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(post, nil)
+	case ctx.Request.Method == "DELETE" && postID != "" && action == "like":
+		post, err := h.service.SetReaction(ctx.Request.Context(), userID, postID, false)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(post, nil)
+	case ctx.Request.Method == "POST" && postID != "" && action == "hide":
+		if err := h.service.HidePost(ctx.Request.Context(), userID, postID); err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Ok(map[string]bool{"hidden": true}, nil)
+	case ctx.Request.Method == "POST" && postID != "" && action == "report":
+		var input feedapp.ReportPostInput
+		if err := ctx.DecodeJSON(&input); err != nil {
+			return response.BadRequest(errors.New("invalid request body"))
+		}
+		report, err := h.service.ReportPost(ctx.Request.Context(), userID, postID, input)
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		return response.Created(report)
 	case ctx.Request.Method == "GET" && postID != "" && action == "comments":
 		limit, _ := strconv.Atoi(ctx.Query("limit"))
-		comments, err := h.service.ListComments(ctx.Request.Context(), postID, limit)
+		comments, err := h.service.ListComments(ctx.Request.Context(), postID, feeddomain.ListCommentsInput{
+			Cursor: ctx.Query("cursor"),
+			Limit:  limit,
+		})
 		if err != nil {
 			return response.BadRequest(err)
 		}

@@ -10,7 +10,7 @@ class SignUpRequest {
     required this.displayName,
     required this.city,
     this.bio = '',
-    this.avatarFileName = '',
+    this.avatarPath = '',
     this.country = '',
   });
 
@@ -20,33 +20,24 @@ class SignUpRequest {
   final String displayName;
   final String city;
   final String bio;
-  final String avatarFileName;
+  final String avatarPath;
   final String country;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'email': email,
-      'username': username,
-      'password': password,
-      'display_name': displayName,
-      'bio': bio,
-      'avatar_file_name': avatarFileName,
-      'city': city,
-      'country': country,
-    };
-  }
 }
 
 class AuthResult {
   const AuthResult({
     required this.token,
     required this.userID,
+    required this.username,
+    required this.email,
     required this.profileComplete,
     required this.profile,
   });
 
   final String token;
   final String userID;
+  final String username;
+  final String email;
   final bool profileComplete;
   final SessionProfile profile;
 
@@ -65,6 +56,8 @@ class AuthResult {
     return AuthResult(
       token: data['token'] as String? ?? '',
       userID: user['id'] as String? ?? '',
+      username: user['username'] as String? ?? '',
+      email: user['email'] as String? ?? '',
       profileComplete: user['profile_complete'] as bool? ?? false,
       profile: SessionProfile.fromJson(profile),
     );
@@ -96,9 +89,19 @@ class AuthApi {
   final ApiClient _client;
 
   Future<AuthResult> signUp(SignUpRequest request) async {
-    final response = await _client.post(
+    final response = await _client.postMultipart(
       '/api/v1/auth/signup',
-      body: request.toJson(),
+      fields: <String, String>{
+        'email': request.email,
+        'username': request.username,
+        'password': request.password,
+        'display_name': request.displayName,
+        'bio': request.bio,
+        'city': request.city,
+        'country': request.country,
+      },
+      fileField: request.avatarPath.trim().isEmpty ? null : 'avatar',
+      filePath: request.avatarPath.trim().isEmpty ? null : request.avatarPath,
     );
 
     return AuthResult.fromEnvelope(response);

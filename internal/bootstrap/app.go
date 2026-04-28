@@ -48,10 +48,28 @@ func NewApp() (*App, error) {
 
 	tokenManager := auth.NewTokenManager(cfg.TokenSecret)
 	passwordHasher := auth.PasswordHasher{}
-	storageService := storage.NewService(cfg.StorageBaseURL, cfg.StorageLocalDir)
-	userRepo := userinfra.NewPostgresRepository(db)
-	chatRepo := chatinfra.NewPostgresRepository(db)
-	feedRepo := feedinfra.NewPostgresRepository(db)
+	storageService, err := storage.NewService(storage.Config{
+		BaseURL:       cfg.StorageBaseURL,
+		Driver:        cfg.StorageDriver,
+		LocalDir:      cfg.StorageLocalDir,
+		PublicBaseURL: cfg.StoragePublicBaseURL,
+		S3: storage.S3Config{
+			Endpoint:      cfg.StorageS3Endpoint,
+			PublicBaseURL: cfg.StoragePublicBaseURL,
+			AccessKeyID:   cfg.StorageS3AccessKey,
+			SecretKey:     cfg.StorageS3SecretKey,
+			UseSSL:        cfg.StorageS3UseSSL,
+			Region:        cfg.StorageS3Region,
+			ProfileBucket: cfg.StorageS3ProfileBucket,
+			PostBucket:    cfg.StorageS3PostBucket,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	userRepo := userinfra.NewPostgresRepository(db, storageService)
+	chatRepo := chatinfra.NewPostgresRepository(db, storageService)
+	feedRepo := feedinfra.NewPostgresRepository(db, storageService)
 	notificationRepo := notificationinfra.NewPostgresRepository(db)
 	chatHub := chatws.NewHub(logger, chatRepo)
 	publisher := messaging.NoopPublisher{}

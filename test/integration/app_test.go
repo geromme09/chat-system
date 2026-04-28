@@ -20,6 +20,21 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/storage"
 )
 
+func newTestStorage(t *testing.T) storage.Service {
+	t.Helper()
+
+	service, err := storage.NewService(storage.Config{
+		BaseURL:  "https://cdn.test",
+		Driver:   storage.DriverLocal,
+		LocalDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("new storage: %v", err)
+	}
+
+	return service
+}
+
 func TestSignUpLoginAndChatFlow(t *testing.T) {
 	userRepo := newUserRepositoryStub()
 	chatRepo := newChatRepositoryStub()
@@ -27,7 +42,7 @@ func TestSignUpLoginAndChatFlow(t *testing.T) {
 		userRepo,
 		auth.PasswordHasher{},
 		auth.NewTokenManager("test-secret"),
-		storage.NewService("https://cdn.test"),
+		newTestStorage(t),
 		messaging.NoopPublisher{},
 		nil,
 		nil,
@@ -37,26 +52,26 @@ func TestSignUpLoginAndChatFlow(t *testing.T) {
 	ctx := context.Background()
 
 	alice, err := userService.SignUp(ctx, userapp.SignUpInput{
-		Email:          "alice@example.com",
-		Username:       "alice_one",
-		Password:       "password123",
-		DisplayName:    "Alice",
-		AvatarFileName: "alice.png",
-		City:           "Makati",
-		Country:        "Philippines",
+		Email:         "alice@example.com",
+		Username:      "alice_one",
+		Password:      "password123",
+		DisplayName:   "Alice",
+		AvatarDataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn8sZUAAAAASUVORK5CYII=",
+		City:          "Makati",
+		Country:       "Philippines",
 	})
 	if err != nil {
 		t.Fatalf("signup alice: %v", err)
 	}
 
 	bob, err := userService.SignUp(ctx, userapp.SignUpInput{
-		Email:          "bob@example.com",
-		Username:       "bob_two",
-		Password:       "password123",
-		DisplayName:    "Bob",
-		AvatarFileName: "bob.png",
-		City:           "Taguig",
-		Country:        "Philippines",
+		Email:         "bob@example.com",
+		Username:      "bob_two",
+		Password:      "password123",
+		DisplayName:   "Bob",
+		AvatarDataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn8sZUAAAAASUVORK5CYII=",
+		City:          "Taguig",
+		Country:       "Philippines",
 	})
 	if err != nil {
 		t.Fatalf("signup bob: %v", err)
@@ -127,7 +142,7 @@ func TestConversationReadReceiptsExposePeerReadState(t *testing.T) {
 		userRepo,
 		auth.PasswordHasher{},
 		auth.NewTokenManager("test-secret"),
-		storage.NewService("https://cdn.test"),
+		newTestStorage(t),
 		messaging.NoopPublisher{},
 		nil,
 		nil,
@@ -230,7 +245,7 @@ func TestFeedCreateAndListFlow(t *testing.T) {
 		City:        "Makati",
 	}, feedapp.CreatePostInput{
 		Caption:      "Local session tonight.",
-		ImageDataURL: "data:image/jpeg;base64,ZmFrZQ==",
+		ImageDataURL: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn8sZUAAAAASUVORK5CYII=",
 	})
 	if err != nil {
 		t.Fatalf("create post: %v", err)
@@ -253,7 +268,7 @@ func TestFeedCreateAndListFlow(t *testing.T) {
 	if page.Items[0].Caption != "Local session tonight." {
 		t.Fatalf("unexpected caption: %s", page.Items[0].Caption)
 	}
-	if page.Items[0].ImageURL != "https://cdn.test/media/feed/test-image.jpg" {
+	if page.Items[0].ImageURL != "https://cdn.test/post-media/posts/test-image.jpg" {
 		t.Fatalf("unexpected image url: %s", page.Items[0].ImageURL)
 	}
 
@@ -263,6 +278,20 @@ func TestFeedCreateAndListFlow(t *testing.T) {
 	}
 	if !reacted.ReactedByMe || reacted.ReactionCount != 1 {
 		t.Fatalf("expected reacted post with count 1, got %#v", reacted)
+	}
+	reacted, err = feedService.SetReaction(context.Background(), "user-1", post.ID, true)
+	if err != nil {
+		t.Fatalf("set reaction: %v", err)
+	}
+	if !reacted.ReactedByMe || reacted.ReactionCount != 1 {
+		t.Fatalf("expected idempotent reacted post with count 1, got %#v", reacted)
+	}
+	reacted, err = feedService.SetReaction(context.Background(), "user-1", post.ID, false)
+	if err != nil {
+		t.Fatalf("unset reaction: %v", err)
+	}
+	if reacted.ReactedByMe || reacted.ReactionCount != 0 {
+		t.Fatalf("expected idempotent unreacted post with count 0, got %#v", reacted)
 	}
 
 	comment, err := feedService.CreateComment(context.Background(), feeddomain.Author{
@@ -277,12 +306,12 @@ func TestFeedCreateAndListFlow(t *testing.T) {
 		t.Fatalf("unexpected comment body: %s", comment.Body)
 	}
 
-	comments, err := feedService.ListComments(context.Background(), post.ID, 10)
+	comments, err := feedService.ListComments(context.Background(), post.ID, feeddomain.ListCommentsInput{Limit: 10})
 	if err != nil {
 		t.Fatalf("list comments: %v", err)
 	}
-	if len(comments) != 1 {
-		t.Fatalf("expected 1 comment, got %d", len(comments))
+	if len(comments.Items) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments.Items))
 	}
 
 	if len(notificationSpy.notifications) != 1 {
@@ -626,12 +655,27 @@ func (s *feedNotificationServiceSpy) NotifyFeedCommentReply(_ context.Context, r
 	return nil
 }
 
-func (feedMediaStorageStub) SaveFeedImageDataURL(_ context.Context, dataURL string) (string, error) {
+func (feedMediaStorageStub) SaveFeedImageDataURL(_ context.Context, dataURL string) (storage.ObjectRef, error) {
 	if dataURL == "" {
-		return "", errors.New("image data required")
+		return storage.ObjectRef{}, errors.New("image data required")
 	}
 
-	return "https://cdn.test/media/feed/test-image.jpg", nil
+	return storage.ObjectRef{
+		Bucket:      "post-media",
+		ObjectKey:   "posts/test-image.jpg",
+		ContentType: "image/jpeg",
+	}, nil
+}
+
+func (feedMediaStorageStub) PublicURL(ref storage.ObjectRef) string {
+	if ref.Bucket == "" {
+		return "https://cdn.test/media/" + ref.ObjectKey
+	}
+	return "https://cdn.test/" + ref.Bucket + "/" + ref.ObjectKey
+}
+
+func (feedMediaStorageStub) DeleteObject(_ context.Context, _ storage.ObjectRef) error {
+	return nil
 }
 
 func newFeedRepositoryStub() *feedRepositoryStub {
@@ -642,7 +686,7 @@ func newFeedRepositoryStub() *feedRepositoryStub {
 	}
 }
 
-func (r *feedRepositoryStub) CreatePost(_ context.Context, post feeddomain.Post, _ string) error {
+func (r *feedRepositoryStub) CreatePost(_ context.Context, post feeddomain.Post) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -692,6 +736,45 @@ func (r *feedRepositoryStub) GetPost(_ context.Context, actorUserID, postID stri
 	return feeddomain.Post{}, errors.New("post not found")
 }
 
+func (r *feedRepositoryStub) UpdatePost(_ context.Context, actorUserID, postID, caption string) (feeddomain.Post, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for index, post := range r.posts {
+		if post.ID == postID && post.Author.UserID == actorUserID {
+			post.Caption = caption
+			r.posts[index] = post
+			return post, nil
+		}
+	}
+
+	return feeddomain.Post{}, errors.New("post not found")
+}
+
+func (r *feedRepositoryStub) DeletePost(_ context.Context, actorUserID, postID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for index, post := range r.posts {
+		if post.ID == postID && post.Author.UserID == actorUserID {
+			r.posts = append(r.posts[:index], r.posts[index+1:]...)
+			delete(r.reactions, postID)
+			delete(r.comments, postID)
+			return nil
+		}
+	}
+
+	return errors.New("post not found")
+}
+
+func (r *feedRepositoryStub) HidePost(_ context.Context, postID, userID string, _ time.Time) error {
+	return nil
+}
+
+func (r *feedRepositoryStub) ReportPost(_ context.Context, report feeddomain.PostReport) error {
+	return nil
+}
+
 func (r *feedRepositoryStub) ToggleReaction(_ context.Context, postID, userID string, _ time.Time) (feeddomain.Post, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -703,6 +786,30 @@ func (r *feedRepositoryStub) ToggleReaction(_ context.Context, postID, userID st
 		delete(r.reactions[postID], userID)
 	} else {
 		r.reactions[postID][userID] = struct{}{}
+	}
+
+	for _, post := range r.posts {
+		if post.ID == postID {
+			post.ReactionCount = int64(len(r.reactions[postID]))
+			post.CommentCount = int64(len(r.comments[postID]))
+			_, post.ReactedByMe = r.reactions[postID][userID]
+			return post, nil
+		}
+	}
+	return feeddomain.Post{}, errors.New("post not found")
+}
+
+func (r *feedRepositoryStub) SetReaction(_ context.Context, postID, userID string, reacted bool, _ time.Time) (feeddomain.Post, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reactions[postID] == nil {
+		r.reactions[postID] = map[string]struct{}{}
+	}
+	if reacted {
+		r.reactions[postID][userID] = struct{}{}
+	} else {
+		delete(r.reactions[postID], userID)
 	}
 
 	for _, post := range r.posts {
@@ -739,11 +846,12 @@ func (r *feedRepositoryStub) GetComment(_ context.Context, commentID string) (fe
 	return feeddomain.Comment{}, errors.New("comment not found")
 }
 
-func (r *feedRepositoryStub) ListComments(_ context.Context, postID string, limit int) ([]feeddomain.Comment, error) {
+func (r *feedRepositoryStub) ListComments(_ context.Context, postID string, input feeddomain.ListCommentsInput) ([]feeddomain.Comment, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	comments := r.comments[postID]
+	limit := input.Limit
 	if limit > len(comments) {
 		limit = len(comments)
 	}

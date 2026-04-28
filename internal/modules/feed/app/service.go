@@ -11,10 +11,13 @@ import (
 
 	"github.com/geromme09/chat-system/internal/modules/feed/domain"
 	"github.com/geromme09/chat-system/internal/platform/identity"
+	"github.com/geromme09/chat-system/internal/platform/storage"
 )
 
 type MediaStorage interface {
-	SaveFeedImageDataURL(ctx context.Context, dataURL string) (string, error)
+	SaveFeedImageDataURL(ctx context.Context, dataURL string) (storage.ObjectRef, error)
+	PublicURL(ref storage.ObjectRef) string
+	DeleteObject(ctx context.Context, ref storage.ObjectRef) error
 }
 
 type NotificationService interface {
@@ -30,6 +33,14 @@ type CreatePostInput struct {
 type CreateCommentInput struct {
 	Body            string `json:"body"`
 	ParentCommentID string `json:"parent_comment_id"`
+}
+
+type UpdatePostInput struct {
+	Caption string `json:"caption"`
+}
+
+type ReportPostInput struct {
+	Reason string `json:"reason"`
 }
 
 type Service struct {
@@ -110,6 +121,7 @@ func (s *Service) CreatePost(ctx context.Context, author domain.Author, input Cr
 
 	postType := domain.PostTypeText
 	imageURL := ""
+	var imageRef storage.ObjectRef
 	if imageDataURL != "" {
 		if !strings.HasPrefix(imageDataURL, "data:image/") {
 			return domain.Post{}, errors.New("image_data_url must be a valid image data URL")
@@ -118,27 +130,108 @@ func (s *Service) CreatePost(ctx context.Context, author domain.Author, input Cr
 			return domain.Post{}, errors.New("media storage is not configured")
 		}
 		var err error
-		imageURL, err = s.storage.SaveFeedImageDataURL(ctx, imageDataURL)
+		imageRef, err = s.storage.SaveFeedImageDataURL(ctx, imageDataURL)
 		if err != nil {
 			return domain.Post{}, err
 		}
+		imageURL = s.storage.PublicURL(imageRef)
 		postType = domain.PostTypeImage
 	}
 
 	post := domain.Post{
-		ID:        s.idSource(),
-		Author:    author,
-		Type:      postType,
-		Caption:   caption,
-		ImageURL:  imageURL,
-		CreatedAt: s.timeSource(),
+		ID:          s.idSource(),
+		Author:      author,
+		Type:        postType,
+		Caption:     caption,
+		ImageURL:    imageURL,
+		ImageBucket: imageRef.Bucket,
+		ImageKey:    imageRef.ObjectKey,
+		ImageType:   imageRef.ContentType,
+		CreatedAt:   s.timeSource(),
 	}
 
-	if err := s.repo.CreatePost(ctx, post, imageURL); err != nil {
+	if err := s.repo.CreatePost(ctx, post); err != nil {
 		return domain.Post{}, err
 	}
 
 	return post, nil
+}
+
+func (s *Service) UpdatePost(ctx context.Context, actorUserID, postID string, input UpdatePostInput) (domain.Post, error) {
+	postID = strings.TrimSpace(postID)
+	caption := strings.TrimSpace(input.Caption)
+	if postID == "" {
+		return domain.Post{}, errors.New("post id is required")
+	}
+	if caption == "" {
+		return domain.Post{}, errors.New("caption is required")
+	}
+
+	return s.repo.UpdatePost(ctx, actorUserID, postID, caption)
+}
+
+func (s *Service) DeletePost(ctx context.Context, actorUserID, postID string) error {
+	postID = strings.TrimSpace(postID)
+	if postID == "" {
+		return errors.New("post id is required")
+	}
+
+	post, err := s.repo.GetPost(ctx, actorUserID, postID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.DeletePost(ctx, actorUserID, postID); err != nil {
+		return err
+	}
+	if s.storage != nil {
+		_ = s.storage.DeleteObject(ctx, storage.ObjectRef{
+			Bucket:    post.ImageBucket,
+			ObjectKey: post.ImageKey,
+		})
+	}
+	return nil
+}
+
+func (s *Service) HidePost(ctx context.Context, actorUserID, postID string) error {
+	postID = strings.TrimSpace(postID)
+	if postID == "" {
+		return errors.New("post id is required")
+	}
+
+	if _, err := s.repo.GetPost(ctx, actorUserID, postID); err != nil {
+		return err
+	}
+
+	return s.repo.HidePost(ctx, postID, actorUserID, s.timeSource())
+}
+
+func (s *Service) ReportPost(ctx context.Context, actorUserID, postID string, input ReportPostInput) (domain.PostReport, error) {
+	postID = strings.TrimSpace(postID)
+	if postID == "" {
+		return domain.PostReport{}, errors.New("post id is required")
+	}
+
+	if _, err := s.repo.GetPost(ctx, actorUserID, postID); err != nil {
+		return domain.PostReport{}, err
+	}
+
+	report := domain.PostReport{
+		ID:             s.idSource(),
+		PostID:         postID,
+		ReporterUserID: actorUserID,
+		Reason:         strings.TrimSpace(input.Reason),
+		Status:         "pending",
+		CreatedAt:      s.timeSource(),
+	}
+	if report.Reason == "" {
+		report.Reason = "unspecified"
+	}
+
+	if err := s.repo.ReportPost(ctx, report); err != nil {
+		return domain.PostReport{}, err
+	}
+
+	return report, nil
 }
 
 func (s *Service) ToggleReaction(ctx context.Context, actorUserID, postID string) (domain.Post, error) {
@@ -150,19 +243,55 @@ func (s *Service) ToggleReaction(ctx context.Context, actorUserID, postID string
 	return s.repo.ToggleReaction(ctx, postID, actorUserID, s.timeSource())
 }
 
-func (s *Service) ListComments(ctx context.Context, postID string, limit int) ([]domain.Comment, error) {
+func (s *Service) SetReaction(ctx context.Context, actorUserID, postID string, reacted bool) (domain.Post, error) {
 	postID = strings.TrimSpace(postID)
 	if postID == "" {
-		return nil, errors.New("post id is required")
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 50 {
-		limit = 50
+		return domain.Post{}, errors.New("post id is required")
 	}
 
-	return s.repo.ListComments(ctx, postID, limit)
+	return s.repo.SetReaction(ctx, postID, actorUserID, reacted, s.timeSource())
+}
+
+func (s *Service) ListComments(ctx context.Context, postID string, input domain.ListCommentsInput) (domain.CommentPage, error) {
+	postID = strings.TrimSpace(postID)
+	if postID == "" {
+		return domain.CommentPage{}, errors.New("post id is required")
+	}
+	if input.Limit <= 0 {
+		input.Limit = 20
+	}
+	if input.Limit > 50 {
+		input.Limit = 50
+	}
+
+	if input.CursorCreatedAt == nil && strings.TrimSpace(input.Cursor) != "" {
+		cursorCreatedAt, cursorID, err := decodeCursor(strings.TrimSpace(input.Cursor))
+		if err != nil {
+			return domain.CommentPage{}, err
+		}
+		input.CursorCreatedAt = cursorCreatedAt
+		input.CursorID = cursorID
+	}
+
+	rows, err := s.repo.ListComments(ctx, postID, domain.ListCommentsInput{
+		Limit:           input.Limit + 1,
+		CursorCreatedAt: input.CursorCreatedAt,
+		CursorID:        strings.TrimSpace(input.CursorID),
+	})
+	if err != nil {
+		return domain.CommentPage{}, err
+	}
+
+	page := domain.CommentPage{
+		Items: rows,
+	}
+	if len(rows) > input.Limit {
+		last := rows[input.Limit-1]
+		page.Items = rows[:input.Limit]
+		page.NextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
+
+	return page, nil
 }
 
 func (s *Service) CreateComment(ctx context.Context, author domain.Author, postID string, input CreateCommentInput) (domain.Comment, error) {
@@ -239,11 +368,19 @@ func (s *Service) CreateComment(ctx context.Context, author domain.Author, postI
 }
 
 func encodePostCursor(createdAt time.Time, postID string) string {
-	payload := fmt.Sprintf("%d|%s", createdAt.UTC().UnixNano(), postID)
-	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+	return encodeCursor(createdAt, postID)
 }
 
 func decodePostCursor(cursor string) (*time.Time, string, error) {
+	return decodeCursor(cursor)
+}
+
+func encodeCursor(createdAt time.Time, id string) string {
+	payload := fmt.Sprintf("%d|%s", createdAt.UTC().UnixNano(), id)
+	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+func decodeCursor(cursor string) (*time.Time, string, error) {
 	if cursor == "" {
 		return nil, "", nil
 	}

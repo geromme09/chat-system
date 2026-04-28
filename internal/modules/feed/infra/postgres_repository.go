@@ -7,12 +7,14 @@ import (
 
 	"github.com/geromme09/chat-system/internal/modules/feed/domain"
 	"github.com/geromme09/chat-system/internal/platform/identity"
+	"github.com/geromme09/chat-system/internal/platform/storage"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type PostgresRepository struct {
-	db *gorm.DB
+	db      *gorm.DB
+	storage storage.Service
 }
 
 type feedPostRow struct {
@@ -21,10 +23,15 @@ type feedPostRow struct {
 	Username              string
 	DisplayName           string
 	AvatarURL             string
+	AvatarBucket          string
+	AvatarKey             string
 	City                  string
 	PostType              string
 	Caption               string
 	ImageURL              string
+	ImageBucket           string
+	ImageKey              string
+	ImageType             string
 	ReactionCount         int64
 	CommentCount          int64
 	ReactedByMe           bool
@@ -33,11 +40,11 @@ type feedPostRow struct {
 	FriendshipRequesterID string
 }
 
-func NewPostgresRepository(db *gorm.DB) *PostgresRepository {
-	return &PostgresRepository{db: db}
+func NewPostgresRepository(db *gorm.DB, mediaStorage storage.Service) *PostgresRepository {
+	return &PostgresRepository{db: db, storage: mediaStorage}
 }
 
-func (r *PostgresRepository) CreatePost(ctx context.Context, post domain.Post, imageURL string) error {
+func (r *PostgresRepository) CreatePost(ctx context.Context, post domain.Post) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		postModel := feedPostModel{
 			ID:           post.ID,
@@ -50,22 +57,25 @@ func (r *PostgresRepository) CreatePost(ctx context.Context, post domain.Post, i
 			return err
 		}
 
-		if imageURL == "" {
+		if post.ImageKey == "" {
 			return nil
 		}
 
 		return tx.Create(&feedMediaModel{
-			ID:         identity.NewUUID(),
-			FeedPostID: post.ID,
-			MediaType:  domain.PostTypeImage,
-			MediaURL:   imageURL,
-			CreatedAt:  post.CreatedAt,
+			ID:          identity.NewUUID(),
+			FeedPostID:  post.ID,
+			MediaType:   domain.PostTypeImage,
+			MediaURL:    legacyImageURL(post),
+			Bucket:      post.ImageBucket,
+			ObjectKey:   post.ImageKey,
+			ContentType: post.ImageType,
+			CreatedAt:   post.CreatedAt,
 		}).Error
 	})
 }
 
 func (r *PostgresRepository) ListPosts(ctx context.Context, actorUserID string, input domain.ListPostsInput) ([]domain.Post, error) {
-	selectedPosts := r.selectedPostsQuery(ctx, input)
+	selectedPosts := r.selectedPostsQuery(ctx, actorUserID, input)
 	rows, err := r.listPostRows(ctx, actorUserID, selectedPosts, input.Limit)
 	if err != nil {
 		return nil, err
@@ -73,7 +83,7 @@ func (r *PostgresRepository) ListPosts(ctx context.Context, actorUserID string, 
 
 	posts := make([]domain.Post, 0, len(rows))
 	for _, current := range rows {
-		posts = append(posts, mapPostRow(actorUserID, current))
+		posts = append(posts, r.mapPostRow(actorUserID, current))
 	}
 
 	return posts, nil
@@ -91,6 +101,16 @@ func (r *PostgresRepository) GetPost(ctx context.Context, actorUserID, postID st
 		`).
 		Where("feed_posts.id = ?", postID).
 		Limit(1)
+	if actorUserID != "" {
+		selectedPosts = selectedPosts.Where(`
+			NOT EXISTS (
+				SELECT 1
+				FROM feed_hidden_posts
+				WHERE feed_hidden_posts.feed_post_id = feed_posts.id
+					AND feed_hidden_posts.user_id = ?
+			)
+		`, actorUserID)
+	}
 
 	rows, err := r.listPostRows(ctx, actorUserID, selectedPosts, 1)
 	if err != nil {
@@ -100,7 +120,69 @@ func (r *PostgresRepository) GetPost(ctx context.Context, actorUserID, postID st
 		return domain.Post{}, errors.New("post not found")
 	}
 
-	return mapPostRow(actorUserID, rows[0]), nil
+	return r.mapPostRow(actorUserID, rows[0]), nil
+}
+
+func (r *PostgresRepository) UpdatePost(ctx context.Context, actorUserID, postID, caption string) (domain.Post, error) {
+	result := r.db.WithContext(ctx).
+		Model(&feedPostModel{}).
+		Where("id = ? AND author_user_id = ?", postID, actorUserID).
+		Update("caption", caption)
+	if result.Error != nil {
+		return domain.Post{}, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.Post{}, errors.New("post not found")
+	}
+
+	return r.GetPost(ctx, actorUserID, postID)
+}
+
+func (r *PostgresRepository) DeletePost(ctx context.Context, actorUserID, postID string) error {
+	result := r.db.WithContext(ctx).
+		Where("id = ? AND author_user_id = ?", postID, actorUserID).
+		Delete(&feedPostModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("post not found")
+	}
+
+	return nil
+}
+
+func (r *PostgresRepository) HidePost(ctx context.Context, postID, userID string, hiddenAt time.Time) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&feedHiddenPostModel{
+			FeedPostID: postID,
+			UserID:     userID,
+			CreatedAt:  hiddenAt,
+		}).Error
+}
+
+func (r *PostgresRepository) ReportPost(ctx context.Context, report domain.PostReport) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "feed_post_id"},
+				{Name: "reporter_user_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"reason":     report.Reason,
+				"status":     report.Status,
+				"created_at": report.CreatedAt,
+			}),
+		}).
+		Create(&feedPostReportModel{
+			ID:             report.ID,
+			FeedPostID:     report.PostID,
+			ReporterUserID: report.ReporterUserID,
+			Reason:         report.Reason,
+			Status:         report.Status,
+			CreatedAt:      report.CreatedAt,
+		}).Error
 }
 
 func (r *PostgresRepository) ToggleReaction(ctx context.Context, postID, userID string, reactedAt time.Time) (domain.Post, error) {
@@ -119,6 +201,26 @@ func (r *PostgresRepository) ToggleReaction(ctx context.Context, postID, userID 
 		default:
 			return err
 		}
+	})
+	if err != nil {
+		return domain.Post{}, err
+	}
+
+	return r.GetPost(ctx, userID, postID)
+}
+
+func (r *PostgresRepository) SetReaction(ctx context.Context, postID, userID string, reacted bool, reactedAt time.Time) (domain.Post, error) {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if reacted {
+			return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&feedReactionModel{
+				FeedPostID: postID,
+				UserID:     userID,
+				CreatedAt:  reactedAt,
+			}).Error
+		}
+
+		return tx.Where("feed_post_id = ? AND user_id = ?", postID, userID).
+			Delete(&feedReactionModel{}).Error
 	})
 	if err != nil {
 		return domain.Post{}, err
@@ -149,6 +251,8 @@ func (r *PostgresRepository) GetComment(ctx context.Context, commentID string) (
 		Username        string
 		DisplayName     string
 		AvatarURL       string
+		AvatarBucket    string
+		AvatarKey       string
 		City            string
 		Body            string
 		CreatedAt       time.Time
@@ -165,6 +269,8 @@ func (r *PostgresRepository) GetComment(ctx context.Context, commentID string) (
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city,
 			feed_comments.body,
 			feed_comments.created_at
@@ -181,10 +287,10 @@ func (r *PostgresRepository) GetComment(ctx context.Context, commentID string) (
 		return domain.Comment{}, errors.New("comment not found")
 	}
 
-	return mapCommentRow(current.ID, current.FeedPostID, current.ParentCommentID, current.AuthorUserID, current.Username, current.DisplayName, current.AvatarURL, current.City, current.Body, current.CreatedAt), nil
+	return mapCommentRow(r, current.ID, current.FeedPostID, current.ParentCommentID, current.AuthorUserID, current.Username, current.DisplayName, current.AvatarURL, current.AvatarBucket, current.AvatarKey, current.City, current.Body, current.CreatedAt), nil
 }
 
-func (r *PostgresRepository) ListComments(ctx context.Context, postID string, limit int) ([]domain.Comment, error) {
+func (r *PostgresRepository) ListComments(ctx context.Context, postID string, input domain.ListCommentsInput) ([]domain.Comment, error) {
 	type row struct {
 		ID              string
 		FeedPostID      string
@@ -193,13 +299,15 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 		Username        string
 		DisplayName     string
 		AvatarURL       string
+		AvatarBucket    string
+		AvatarKey       string
 		City            string
 		Body            string
 		CreatedAt       time.Time
 	}
 
-	rows := make([]row, 0, limit)
-	if err := r.db.WithContext(ctx).
+	rows := make([]row, 0, input.Limit)
+	query := r.db.WithContext(ctx).
 		Table("feed_comments").
 		Select(`
 			feed_comments.id,
@@ -209,16 +317,29 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city,
 			feed_comments.body,
 			feed_comments.created_at
 		`).
 		Joins("JOIN users ON users.id = feed_comments.author_user_id").
 		Joins("JOIN user_profiles ON user_profiles.user_id = users.id").
-		Where("feed_comments.feed_post_id = ?", postID).
+		Where("feed_comments.feed_post_id = ?", postID)
+
+	if input.CursorCreatedAt != nil && input.CursorID != "" {
+		query = query.Where(
+			"(feed_comments.created_at > ?) OR (feed_comments.created_at = ? AND feed_comments.id > ?)",
+			*input.CursorCreatedAt,
+			*input.CursorCreatedAt,
+			input.CursorID,
+		)
+	}
+
+	if err := query.
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "feed_comments.created_at"}, Desc: false}).
 		Order(clause.OrderByColumn{Column: clause.Column{Name: "feed_comments.id"}, Desc: false}).
-		Limit(limit).
+		Limit(input.Limit).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -228,6 +349,7 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 		comments = append(
 			comments,
 			mapCommentRow(
+				r,
 				current.ID,
 				current.FeedPostID,
 				current.ParentCommentID,
@@ -235,6 +357,8 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 				current.Username,
 				current.DisplayName,
 				current.AvatarURL,
+				current.AvatarBucket,
+				current.AvatarKey,
 				current.City,
 				current.Body,
 				current.CreatedAt,
@@ -245,7 +369,7 @@ func (r *PostgresRepository) ListComments(ctx context.Context, postID string, li
 	return comments, nil
 }
 
-func (r *PostgresRepository) selectedPostsQuery(ctx context.Context, input domain.ListPostsInput) *gorm.DB {
+func (r *PostgresRepository) selectedPostsQuery(ctx context.Context, actorUserID string, input domain.ListPostsInput) *gorm.DB {
 	query := r.db.WithContext(ctx).
 		Table("feed_posts").
 		Select(`
@@ -258,6 +382,16 @@ func (r *PostgresRepository) selectedPostsQuery(ctx context.Context, input domai
 
 	if input.AuthorUserID != "" {
 		query = query.Where("feed_posts.author_user_id = ?", input.AuthorUserID)
+	}
+	if actorUserID != "" {
+		query = query.Where(`
+			NOT EXISTS (
+				SELECT 1
+				FROM feed_hidden_posts
+				WHERE feed_hidden_posts.feed_post_id = feed_posts.id
+					AND feed_hidden_posts.user_id = ?
+			)
+		`, actorUserID)
 	}
 	if input.CursorCreatedAt != nil && input.CursorID != "" {
 		query = query.Where(
@@ -295,10 +429,15 @@ func (r *PostgresRepository) listPostRows(ctx context.Context, actorUserID strin
 			users.username,
 			user_profiles.display_name,
 			user_profiles.avatar_url,
+			COALESCE(user_profiles.avatar_bucket, '') AS avatar_bucket,
+			COALESCE(user_profiles.avatar_key, '') AS avatar_key,
 			user_profiles.city,
 			selected_posts.post_type,
 			selected_posts.caption,
 			COALESCE(feed_media.media_url, '') AS image_url,
+			COALESCE(feed_media.bucket, '') AS image_bucket,
+			COALESCE(feed_media.object_key, '') AS image_key,
+			COALESCE(feed_media.content_type, '') AS image_type,
 			COALESCE(reactions.reaction_count, 0) AS reaction_count,
 			COALESCE(comments.comment_count, 0) AS comment_count,
 			CASE WHEN my_reaction.user_id IS NULL THEN FALSE ELSE TRUE END AS reacted_by_me,
@@ -331,20 +470,25 @@ func (r *PostgresRepository) listPostRows(ctx context.Context, actorUserID strin
 	return rows, nil
 }
 
-func mapPostRow(actorUserID string, current feedPostRow) domain.Post {
+func (r *PostgresRepository) mapPostRow(actorUserID string, current feedPostRow) domain.Post {
 	return domain.Post{
 		ID: current.ID,
 		Author: domain.Author{
 			UserID:           current.AuthorUserID,
 			Username:         current.Username,
 			DisplayName:      current.DisplayName,
-			AvatarURL:        current.AvatarURL,
+			AvatarURL:        publicURL(current.AvatarURL, current.AvatarBucket, current.AvatarKey, r),
+			AvatarBucket:     current.AvatarBucket,
+			AvatarKey:        current.AvatarKey,
 			City:             current.City,
 			ConnectionStatus: connectionStatusForAuthor(actorUserID, current.AuthorUserID, current.FriendshipStatus, current.FriendshipRequesterID),
 		},
 		Type:          current.PostType,
 		Caption:       current.Caption,
-		ImageURL:      current.ImageURL,
+		ImageURL:      publicURL(current.ImageURL, current.ImageBucket, current.ImageKey, r),
+		ImageBucket:   current.ImageBucket,
+		ImageKey:      current.ImageKey,
+		ImageType:     current.ImageType,
 		ReactionCount: current.ReactionCount,
 		CommentCount:  current.CommentCount,
 		ReactedByMe:   current.ReactedByMe,
@@ -352,16 +496,18 @@ func mapPostRow(actorUserID string, current feedPostRow) domain.Post {
 	}
 }
 
-func mapCommentRow(id, postID string, parentCommentID *string, authorUserID, username, displayName, avatarURL, city, body string, createdAt time.Time) domain.Comment {
+func mapCommentRow(repo *PostgresRepository, id, postID string, parentCommentID *string, authorUserID, username, displayName, avatarURL, avatarBucket, avatarKey, city, body string, createdAt time.Time) domain.Comment {
 	comment := domain.Comment{
 		ID:     id,
 		PostID: postID,
 		Author: domain.Author{
-			UserID:      authorUserID,
-			Username:    username,
-			DisplayName: displayName,
-			AvatarURL:   avatarURL,
-			City:        city,
+			UserID:       authorUserID,
+			Username:     username,
+			DisplayName:  displayName,
+			AvatarURL:    publicURL(avatarURL, avatarBucket, avatarKey, repo),
+			AvatarBucket: avatarBucket,
+			AvatarKey:    avatarKey,
+			City:         city,
 		},
 		Body:      body,
 		CreatedAt: createdAt,
@@ -395,4 +541,21 @@ func nullableString(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func publicURL(legacyURL, bucket, key string, repo *PostgresRepository) string {
+	if repo != nil && repo.storage != nil && bucket != "" && key != "" {
+		return repo.storage.PublicURL(storage.ObjectRef{
+			Bucket:    bucket,
+			ObjectKey: key,
+		})
+	}
+	return legacyURL
+}
+
+func legacyImageURL(post domain.Post) string {
+	if post.ImageBucket != "" && post.ImageKey != "" {
+		return ""
+	}
+	return post.ImageURL
 }

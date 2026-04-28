@@ -15,11 +15,14 @@ func (feedPostModel) TableName() string {
 }
 
 type feedMediaModel struct {
-	ID         string `gorm:"primaryKey"`
-	FeedPostID string
-	MediaType  string
-	MediaURL   string
-	CreatedAt  time.Time
+	ID          string `gorm:"primaryKey"`
+	FeedPostID  string
+	MediaType   string
+	MediaURL    string
+	Bucket      string
+	ObjectKey   string
+	ContentType string
+	CreatedAt   time.Time
 }
 
 func (feedMediaModel) TableName() string {
@@ -47,4 +50,27 @@ type feedCommentModel struct {
 
 func (feedCommentModel) TableName() string {
 	return "feed_comments"
+}
+
+type feedHiddenPostModel struct {
+	FeedPostID string `gorm:"primaryKey"`
+	UserID     string `gorm:"primaryKey"`
+	CreatedAt  time.Time
+}
+
+func (feedHiddenPostModel) TableName() string {
+	return "feed_hidden_posts"
+}
+
+type feedPostReportModel struct {
+	ID             string `gorm:"primaryKey"`
+	FeedPostID     string
+	ReporterUserID string
+	Reason         string
+	Status         string
+	CreatedAt      time.Time
+}
+
+func (feedPostReportModel) TableName() string {
+	return "feed_post_reports"
 }

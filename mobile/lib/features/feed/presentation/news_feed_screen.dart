@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/router.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/section_card.dart';
 import '../../chat/data/chat_api.dart';
 import '../../chat/data/chat_constants.dart';
@@ -21,7 +22,9 @@ import '../../friends/presentation/friend_search_profile_screen.dart';
 import '../../friends/presentation/notifications_screen.dart';
 import '../../home/presentation/home_shell_screen.dart';
 import '../data/feed_api.dart';
+import 'comment_widgets.dart';
 import 'post_detail_screen.dart';
+import 'post_options_bottom_sheet.dart';
 
 class NewsFeedScreen extends StatefulWidget {
   const NewsFeedScreen({super.key});
@@ -42,11 +45,6 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
   List<FeedPost> _posts = const <FeedPost>[];
   final List<FriendNotificationRecord> _notifications =
       <FriendNotificationRecord>[];
-  final Map<String, List<FeedComment>> _commentsByPostID =
-      <String, List<FeedComment>>{};
-  final Set<String> _expandedCommentPostIDs = <String>{};
-  final Set<String> _loadingCommentPostIDs = <String>{};
-  final Set<String> _submittingCommentPostIDs = <String>{};
   final Set<String> _reactingPostIDs = <String>{};
   StreamSubscription<ChatRealtimeEvent>? _realtimeSubscription;
   StreamSubscription<ChatRealtimeStatus>? _statusSubscription;
@@ -488,13 +486,11 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
     });
 
     try {
-      final imageDataUrl =
-          _selectedImage == null ? '' : await _toImageDataUrl(_selectedImage!);
       final createdPost = await _feedApi.createPost(
         token: token,
         request: CreateFeedPostRequest(
           caption: caption,
-          imageDataUrl: imageDataUrl,
+          imagePath: _selectedImage?.path ?? '',
         ),
       );
 
@@ -523,18 +519,6 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
     }
   }
 
-  Future<String> _toImageDataUrl(XFile file) async {
-    final bytes = await File(file.path).readAsBytes();
-    final mimeType = switch (_extensionFor(file.name)) {
-      'png' => 'image/png',
-      'webp' => 'image/webp',
-      'gif' => 'image/gif',
-      _ => 'image/jpeg',
-    };
-
-    return 'data:$mimeType;base64,${base64Encode(bytes)}';
-  }
-
   void _expandComposer() {
     if (_isComposerExpanded) return;
     setState(() {
@@ -552,12 +536,6 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
       _isComposerExpanded = false;
       _message = null;
     });
-  }
-
-  static String _extensionFor(String fileName) {
-    final parts = fileName.split('.');
-    if (parts.length < 2) return '';
-    return parts.last.toLowerCase();
   }
 
   void _openAuthorProfile(FeedPostAuthor author) {
@@ -626,10 +604,9 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
     });
 
     try {
-      final updatedPost = await _feedApi.toggleReaction(
-        token: token,
-        postID: post.id,
-      );
+      final updatedPost = post.reactedByMe
+          ? await _feedApi.unlikePost(token: token, postID: post.id)
+          : await _feedApi.likePost(token: token, postID: post.id);
       if (!mounted) return;
       _replacePost(updatedPost);
     } catch (error) {
@@ -648,102 +625,85 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
     }
   }
 
-  Future<void> _toggleComments(FeedPost post) async {
-    if (_expandedCommentPostIDs.contains(post.id)) {
-      setState(() {
-        _expandedCommentPostIDs.remove(post.id);
-      });
-      return;
-    }
-
-    setState(() {
-      _expandedCommentPostIDs.add(post.id);
-    });
-
-    if (_commentsByPostID.containsKey(post.id)) return;
-    await _loadComments(post.id);
-  }
-
-  Future<void> _loadComments(String postID) async {
-    final token = appSession.token;
-    if (token == null ||
-        token.isEmpty ||
-        _loadingCommentPostIDs.contains(postID)) {
-      return;
-    }
-
-    setState(() {
-      _loadingCommentPostIDs.add(postID);
-      _message = null;
-    });
-
-    try {
-      final comments = await _feedApi.listComments(
-        token: token,
-        postID: postID,
-      );
-      if (!mounted) return;
-      setState(() {
-        _commentsByPostID[postID] = comments;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _message = error.toString().replaceFirst('HttpException: ', '');
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingCommentPostIDs.remove(postID);
-        });
-      }
+  Future<void> _openPostDetail(FeedPost post) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PostDetailScreen(postID: post.id),
+      ),
+    );
+    if (mounted) {
+      await _loadPosts();
     }
   }
 
-  Future<void> _submitComment(
-      FeedPost post, String body, String parentCommentID) async {
+  Future<void> _showPostOptions(FeedPost post) async {
     final token = appSession.token;
-    if (token == null ||
-        token.isEmpty ||
-        body.trim().isEmpty ||
-        _submittingCommentPostIDs.contains(post.id)) {
+    if (token == null || token.isEmpty) {
+      _showSnackBar('Please sign in again.');
       return;
     }
 
-    setState(() {
-      _submittingCommentPostIDs.add(post.id);
-      _message = null;
-    });
+    final isOwnPost = post.author.userID == appSession.userID;
+    final action = await PostOptionsBottomSheet.show(
+      context,
+      isOwnPost: isOwnPost,
+    );
+    if (!mounted || action == null) return;
 
-    try {
-      final comment = await _feedApi.createComment(
-        token: token,
-        postID: post.id,
-        request: CreateFeedCommentRequest(
-          body: body.trim(),
-          parentCommentID: parentCommentID,
-        ),
-      );
-      if (!mounted) return;
-      setState(() {
-        final comments = _commentsByPostID[post.id] ?? const <FeedComment>[];
-        _commentsByPostID[post.id] = <FeedComment>[...comments, comment];
-        _replacePostInState(
-          post.copyWith(commentCount: post.commentCount + 1),
+    switch (action) {
+      case PostOptionAction.hide:
+        try {
+          await _feedApi.hidePost(token: token, postID: post.id);
+          if (!mounted) return;
+          setState(() {
+            _posts = _posts.where((item) => item.id != post.id).toList();
+          });
+          _showSnackBar('Post hidden');
+        } catch (error) {
+          if (mounted) {
+            _showSnackBar(error.toString().replaceFirst('HttpException: ', ''));
+          }
+        }
+      case PostOptionAction.report:
+        try {
+          await _feedApi.reportPost(
+            token: token,
+            postID: post.id,
+            reason: 'reported from feed',
+          );
+          if (mounted) _showSnackBar('Thanks. We received your report.');
+        } catch (error) {
+          if (mounted) {
+            _showSnackBar(error.toString().replaceFirst('HttpException: ', ''));
+          }
+        }
+      case PostOptionAction.copyLink:
+        await Clipboard.setData(
+          ClipboardData(text: 'faceoff://posts/${post.id}'),
         );
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _message = error.toString().replaceFirst('HttpException: ', '');
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _submittingCommentPostIDs.remove(post.id);
-        });
-      }
+        if (mounted) _showSnackBar('Post link copied');
+      case PostOptionAction.edit:
+        _showSnackBar('Edit post flow coming soon.');
+      case PostOptionAction.delete:
+        try {
+          await _feedApi.deletePost(token: token, postID: post.id);
+          if (!mounted) return;
+          setState(() {
+            _posts = _posts.where((item) => item.id != post.id).toList();
+          });
+          _showSnackBar('Post deleted');
+        } catch (error) {
+          if (mounted) {
+            _showSnackBar(error.toString().replaceFirst('HttpException: ', ''));
+          }
+        }
     }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   void _replacePost(FeedPost post) {
@@ -776,7 +736,7 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
               AppSpacing.md,
               AppSpacing.md,
               AppSpacing.md,
-              96,
+              104,
             ),
             children: [
               _FeedHeader(
@@ -835,18 +795,16 @@ class _NewsFeedScreenState extends State<NewsFeedScreen> {
                 for (final post in _posts) ...[
                   _FeedPostCard(
                     post: post,
-                    comments:
-                        _commentsByPostID[post.id] ?? const <FeedComment>[],
-                    commentsExpanded: _expandedCommentPostIDs.contains(post.id),
-                    commentsLoading: _loadingCommentPostIDs.contains(post.id),
-                    commentSubmitting:
-                        _submittingCommentPostIDs.contains(post.id),
+                    comments: const <FeedComment>[],
+                    commentsExpanded: false,
+                    commentsLoading: false,
+                    commentSubmitting: false,
                     reactionBusy: _reactingPostIDs.contains(post.id),
                     onOpenAuthorProfile: () => _openAuthorProfile(post.author),
+                    onOpenOptions: () => _showPostOptions(post),
                     onReact: () => _toggleReaction(post),
-                    onToggleComments: () => _toggleComments(post),
-                    onSubmitComment: (body, parentCommentID) =>
-                        _submitComment(post, body, parentCommentID),
+                    onToggleComments: () => _openPostDetail(post),
+                    onSubmitComment: (body, parentCommentID) async {},
                   ),
                   const SizedBox(height: AppSpacing.md),
                 ],
@@ -960,7 +918,6 @@ class _InlineComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
     final profile = appSession.profile;
     final displayName = (profile?.displayName.trim().isNotEmpty ?? false)
         ? profile!.displayName.trim()
@@ -976,9 +933,13 @@ class _InlineComposer extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.shadowSoft.withValues(alpha: isExpanded ? 1 : 0.5),
-            blurRadius: isExpanded ? 22 : 12,
-            offset: const Offset(0, 10),
+            color: AppColors.shadowSoft.withValues(
+              alpha: isExpanded
+                  ? AppOpacity.composerExpandedShadow
+                  : AppOpacity.composerShadow,
+            ),
+            blurRadius: AppSpacing.sm,
+            offset: const Offset(0, AppSpacing.xs),
           ),
         ],
       ),
@@ -989,15 +950,13 @@ class _InlineComposer extends StatelessWidget {
                 ? CrossAxisAlignment.start
                 : CrossAxisAlignment.center,
             children: [
-              CircleAvatar(
-                radius: 22,
+              AppAvatar(
+                size: AppSizes.composerAvatar,
+                imageUrl: appSession.profile?.avatarUrl ?? '',
+                iconSize: 18,
                 backgroundColor: AppColors.primarySoft,
-                child: Text(
-                  _initialsFor(displayName),
-                  style: textTheme.titleMedium?.copyWith(fontSize: 14),
-                ),
               ),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: AppSpacing.compact),
               Expanded(
                 child: TextField(
                   controller: controller,
@@ -1012,9 +971,12 @@ class _InlineComposer extends StatelessWidget {
                     hintText: isExpanded
                         ? 'Share something with your circle...'
                         : 'What’s happening, $displayName?',
+                    constraints: const BoxConstraints(
+                      minHeight: AppSizes.composerInputHeight,
+                    ),
                     contentPadding: EdgeInsets.symmetric(
                       horizontal: isExpanded ? AppSpacing.md : AppSpacing.sm,
-                      vertical: isExpanded ? AppSpacing.md : AppSpacing.sm,
+                      vertical: AppSpacing.compact,
                     ),
                     filled: true,
                     fillColor: AppColors.surfaceSoft,
@@ -1037,6 +999,7 @@ class _InlineComposer extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.compact),
           Column(
             children: [
               if (selectedImage != null || isExpanded) ...[
@@ -1070,20 +1033,30 @@ class _InlineComposer extends StatelessWidget {
                     ],
                   ),
                 ],
-                const SizedBox(height: AppSpacing.md),
+                const SizedBox(height: AppSpacing.compact),
               ],
               Row(
                 children: [
-                  _ComposerActionChip(
-                    icon: Icons.photo_camera_outlined,
-                    label: 'Camera',
-                    onTap: onPickCamera,
+                  const SizedBox(
+                    width: AppSizes.composerAvatar + AppSpacing.compact,
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  _ComposerActionChip(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Gallery',
-                    onTap: onPickGallery,
+                  Expanded(
+                    child: Wrap(
+                      spacing: AppSpacing.compact,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        _ComposerActionChip(
+                          icon: Icons.photo_camera_outlined,
+                          label: 'Camera',
+                          onTap: onPickCamera,
+                        ),
+                        _ComposerActionChip(
+                          icon: Icons.photo_library_outlined,
+                          label: 'Gallery',
+                          onTap: onPickGallery,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1122,17 +1095,9 @@ class _InlineComposer extends StatelessWidget {
       ),
     );
   }
-
-  static String _initialsFor(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return 'P';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
-        .toUpperCase();
-  }
 }
 
-class _ComposerActionChip extends StatelessWidget {
+class _ComposerActionChip extends StatefulWidget {
   const _ComposerActionChip({
     required this.icon,
     required this.label,
@@ -1144,35 +1109,66 @@ class _ComposerActionChip extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_ComposerActionChip> createState() => _ComposerActionChipState();
+}
+
+class _ComposerActionChipState extends State<_ComposerActionChip> {
+  bool _isPressed = false;
+
+  void _setPressed(bool value) {
+    if (_isPressed == value) return;
+    setState(() => _isPressed = value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceSoft,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: AppColors.textSecondary),
-            const SizedBox(width: AppSpacing.xs),
-            Text(
-              label,
-              style: textTheme.bodySmall?.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onTap,
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) => _setPressed(false),
+      child: AnimatedScale(
+        scale: _isPressed ? AppSizes.composerChipPressedScale : 1,
+        duration: AppMotion.quick,
+        curve: Curves.easeOut,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: AppSizes.composerChipMinHeight,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: AppSizes.composerChipIcon,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text(
+                    widget.label,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1214,6 +1210,7 @@ class _FeedPostCard extends StatefulWidget {
     required this.commentSubmitting,
     required this.reactionBusy,
     required this.onOpenAuthorProfile,
+    required this.onOpenOptions,
     required this.onReact,
     required this.onToggleComments,
     required this.onSubmitComment,
@@ -1226,6 +1223,7 @@ class _FeedPostCard extends StatefulWidget {
   final bool commentSubmitting;
   final bool reactionBusy;
   final VoidCallback onOpenAuthorProfile;
+  final VoidCallback onOpenOptions;
   final VoidCallback onReact;
   final VoidCallback onToggleComments;
   final Future<void> Function(String body, String parentCommentID)
@@ -1278,13 +1276,11 @@ class _FeedPostCardState extends State<_FeedPostCard> {
                 borderRadius: BorderRadius.circular(999),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 22,
+                    AppAvatar(
+                      size: 44,
+                      imageUrl: widget.post.author.avatarUrl,
+                      iconSize: 20,
                       backgroundColor: AppColors.primarySoft,
-                      child: Text(
-                        _initialsFor(authorName),
-                        style: textTheme.titleMedium?.copyWith(fontSize: 14),
-                      ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                   ],
@@ -1323,7 +1319,7 @@ class _FeedPostCardState extends State<_FeedPostCard> {
                 ),
               ),
               IconButton(
-                onPressed: () {},
+                onPressed: widget.onOpenOptions,
                 icon: const Icon(Icons.more_horiz_rounded),
                 color: AppColors.textTertiary,
               ),
@@ -1387,13 +1383,10 @@ class _FeedPostCardState extends State<_FeedPostCard> {
                   _replyingToAuthorName = '';
                 });
               },
-              onReplyToComment: (comment) {
-                final name = comment.author.displayName.trim().isNotEmpty
-                    ? comment.author.displayName.trim()
-                    : comment.author.username;
+              onReplyToComment: (target) {
                 setState(() {
-                  _replyingToCommentID = comment.id;
-                  _replyingToAuthorName = name;
+                  _replyingToCommentID = target.parentCommentID;
+                  _replyingToAuthorName = target.targetUsername;
                 });
               },
               onSubmit: _submitComment,
@@ -1401,18 +1394,6 @@ class _FeedPostCardState extends State<_FeedPostCard> {
         ],
       ),
     );
-  }
-
-  static String _initialsFor(String name) {
-    final parts = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
-    if (parts.isEmpty) return 'P';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
-        .toUpperCase();
   }
 
   static String _relativeTime(DateTime? createdAt) {
@@ -1524,13 +1505,12 @@ class _CommentsPanel extends StatelessWidget {
   final TextEditingController controller;
   final String replyingToAuthorName;
   final VoidCallback onCancelReply;
-  final ValueChanged<FeedComment> onReplyToComment;
+  final ValueChanged<CommentReplyTarget> onReplyToComment;
   final VoidCallback onSubmit;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final tree = _CommentTree.build(comments);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1538,21 +1518,15 @@ class _CommentsPanel extends StatelessWidget {
         const SizedBox(height: AppSpacing.md),
         if (isLoading)
           const Center(child: CircularProgressIndicator())
-        else if (tree.roots.isEmpty)
+        else if (comments.isEmpty)
           Text(
             'No comments yet. Start the conversation.',
             style: textTheme.bodyMedium,
           )
         else
-          ...tree.roots.map(
-            (node) => Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: _CommentBranch(
-                node: node,
-                repliesByParentID: tree.repliesByParentID,
-                onReply: onReplyToComment,
-              ),
-            ),
+          CommentList(
+            comments: comments,
+            onReply: onReplyToComment,
           ),
         const SizedBox(height: AppSpacing.sm),
         if (replyingToAuthorName.trim().isNotEmpty) ...[
@@ -1626,178 +1600,6 @@ class _CommentsPanel extends StatelessWidget {
   }
 }
 
-class _CommentTile extends StatelessWidget {
-  const _CommentTile({
-    required this.comment,
-    required this.onReply,
-  });
-
-  final FeedComment comment;
-  final VoidCallback onReply;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final authorName = comment.author.displayName.trim().isNotEmpty
-        ? comment.author.displayName.trim()
-        : comment.author.username;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 16,
-          backgroundColor: AppColors.surfaceSoft,
-          child: Text(
-            authorName.isEmpty ? 'P' : authorName.substring(0, 1).toUpperCase(),
-            style: textTheme.bodySmall?.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceSoft,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  authorName,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(comment.body, style: textTheme.bodyMedium),
-                const SizedBox(height: AppSpacing.xs),
-                Row(
-                  children: [
-                    Text(
-                      _relativeTime(comment.createdAt),
-                      style: textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    TextButton(
-                      onPressed: onReply,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: Text(
-                        'Reply',
-                        style: textTheme.bodySmall?.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  static String _relativeTime(DateTime? createdAt) {
-    if (createdAt == null) return 'Just now';
-    final difference = DateTime.now().difference(createdAt.toLocal());
-    if (difference.inMinutes < 1) return 'Just now';
-    if (difference.inHours < 1) return '${difference.inMinutes}m';
-    if (difference.inDays < 1) return '${difference.inHours}h';
-    return '${difference.inDays}d';
-  }
-}
-
-class _CommentBranch extends StatelessWidget {
-  const _CommentBranch({
-    required this.node,
-    required this.repliesByParentID,
-    required this.onReply,
-    this.depth = 0,
-  });
-
-  final _CommentNode node;
-  final Map<String, List<FeedComment>> repliesByParentID;
-  final ValueChanged<FeedComment> onReply;
-  final int depth;
-
-  @override
-  Widget build(BuildContext context) {
-    final replies = repliesByParentID[node.comment.id] ?? const <FeedComment>[];
-
-    return Padding(
-      padding: EdgeInsets.only(left: depth == 0 ? 0 : 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CommentTile(
-            comment: node.comment,
-            onReply: () => onReply(node.comment),
-          ),
-          for (final reply in replies)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.sm),
-              child: _CommentBranch(
-                node: _CommentNode(reply),
-                repliesByParentID: repliesByParentID,
-                onReply: onReply,
-                depth: depth >= 4 ? 4 : depth + 1,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommentTree {
-  const _CommentTree({
-    required this.roots,
-    required this.repliesByParentID,
-  });
-
-  final List<_CommentNode> roots;
-  final Map<String, List<FeedComment>> repliesByParentID;
-
-  factory _CommentTree.build(List<FeedComment> comments) {
-    final roots = <_CommentNode>[];
-    final repliesByParentID = <String, List<FeedComment>>{};
-    final commentsByID = <String, FeedComment>{
-      for (final comment in comments) comment.id: comment,
-    };
-
-    for (final comment in comments) {
-      final parentID = comment.parentCommentID.trim();
-      if (parentID.isEmpty || !commentsByID.containsKey(parentID)) {
-        roots.add(_CommentNode(comment));
-        continue;
-      }
-      repliesByParentID.putIfAbsent(parentID, () => <FeedComment>[]);
-      repliesByParentID[parentID]!.add(comment);
-    }
-
-    return _CommentTree(roots: roots, repliesByParentID: repliesByParentID);
-  }
-}
-
-class _CommentNode {
-  const _CommentNode(this.comment);
-
-  final FeedComment comment;
-}
-
 enum _ConnectionBadgeTone { info, warning, danger }
 
 class _ConnectionBadge extends StatelessWidget {
@@ -1855,18 +1657,6 @@ class _FeedPostImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (imageUrl.startsWith('data:image/')) {
-      final data = Uri.parse(imageUrl).data;
-      if (data == null) return const ColoredBox(color: AppColors.surfaceSoft);
-      return Image.memory(data.contentAsBytes(), fit: BoxFit.cover);
-    }
-
-    return Image.network(
-      imageUrl,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) {
-        return const ColoredBox(color: AppColors.surfaceSoft);
-      },
-    );
+    return AppPostImage(imageUrl: imageUrl);
   }
 }

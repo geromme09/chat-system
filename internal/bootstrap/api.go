@@ -57,6 +57,7 @@ func RunHTTP(app *App) error {
 	mux.Handle("POST /api/v1/feed", authMiddleware(tokenManager, httpx.MakeHandler(feedhttp.NewHandler(app.FeedService, app.UserService))))
 	mux.Handle("GET /api/v1/feed/", authMiddleware(tokenManager, httpx.MakeHandler(feedhttp.NewHandler(app.FeedService, app.UserService))))
 	mux.Handle("POST /api/v1/feed/", authMiddleware(tokenManager, httpx.MakeHandler(feedhttp.NewHandler(app.FeedService, app.UserService))))
+	mux.Handle("DELETE /api/v1/feed/", authMiddleware(tokenManager, httpx.MakeHandler(feedhttp.NewHandler(app.FeedService, app.UserService))))
 
 	handler := limiter.middleware(mux)
 	if app.Config.HTTPLogEnabled {

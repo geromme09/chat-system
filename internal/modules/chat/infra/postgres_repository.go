@@ -6,15 +6,17 @@ import (
 	"time"
 
 	"github.com/geromme09/chat-system/internal/modules/chat/domain"
+	"github.com/geromme09/chat-system/internal/platform/storage"
 	"gorm.io/gorm"
 )
 
 type PostgresRepository struct {
-	db *gorm.DB
+	db      *gorm.DB
+	storage storage.Service
 }
 
-func NewPostgresRepository(db *gorm.DB) *PostgresRepository {
-	return &PostgresRepository{db: db}
+func NewPostgresRepository(db *gorm.DB, mediaStorage storage.Service) *PostgresRepository {
+	return &PostgresRepository{db: db, storage: mediaStorage}
 }
 
 func (r *PostgresRepository) CreateConversation(ctx context.Context, conversation domain.Conversation) error {
@@ -84,6 +86,8 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, userID strin
 		OtherUsername       string
 		OtherDisplayName    string
 		OtherAvatarURL      string
+		OtherAvatarBucket   string
+		OtherAvatarKey      string
 		OtherCity           string
 	}
 
@@ -100,6 +104,8 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, userID strin
 			other_users.username AS other_username,
 			other_profiles.display_name AS other_display_name,
 			other_profiles.avatar_url AS other_avatar_url,
+			COALESCE(other_profiles.avatar_bucket, '') AS other_avatar_bucket,
+			COALESCE(other_profiles.avatar_key, '') AS other_avatar_key,
 			other_profiles.city AS other_city
 		FROM conversations
 		JOIN conversation_participants self_participant
@@ -145,7 +151,7 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, userID strin
 				UserID:      row.OtherUserID,
 				Username:    row.OtherUsername,
 				DisplayName: row.OtherDisplayName,
-				AvatarURL:   row.OtherAvatarURL,
+				AvatarURL:   r.publicURL(row.OtherAvatarURL, row.OtherAvatarBucket, row.OtherAvatarKey),
 				City:        row.OtherCity,
 			},
 		}
@@ -156,6 +162,16 @@ func (r *PostgresRepository) ListConversations(ctx context.Context, userID strin
 	}
 
 	return conversations, nil
+}
+
+func (r *PostgresRepository) publicURL(legacyURL, bucket, key string) string {
+	if r.storage != nil && bucket != "" && key != "" {
+		return r.storage.PublicURL(storage.ObjectRef{
+			Bucket:    bucket,
+			ObjectKey: key,
+		})
+	}
+	return legacyURL
 }
 
 func (r *PostgresRepository) GetConversation(ctx context.Context, conversationID string) (domain.Conversation, error) {

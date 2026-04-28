@@ -47,6 +47,15 @@ func NewUnreadCountHandler(service *app.Service) *UnreadCountHandler {
 	return &UnreadCountHandler{service: service}
 }
 
+// Serve lists conversations for the current user.
+// @Summary List chat conversations
+// @Tags chat
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/chat/conversations [get]
 func (h *ListConversationsHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -61,6 +70,17 @@ func (h *ListConversationsHandler) Serve(ctx httpx.Context) response.ApiResponse
 	return response.Ok(conversations, nil)
 }
 
+// Serve creates or returns a direct conversation.
+// @Summary Create chat conversation
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Param request body app.CreateConversationInput true "Conversation payload"
+// @Success 201 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/chat/conversations [post]
 func (h *CreateConversationHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -80,6 +100,7 @@ func (h *CreateConversationHandler) Serve(ctx httpx.Context) response.ApiRespons
 	return response.Created(conversation)
 }
 
+// Serve handles conversation messages and read state.
 func (h *ConversationDetailHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
@@ -120,6 +141,15 @@ func (h *ConversationDetailHandler) Serve(ctx httpx.Context) response.ApiRespons
 	}
 }
 
+// Serve returns the current user's unread chat count.
+// @Summary Get chat unread count
+// @Tags chat
+// @Produce json
+// @Success 200 {object} response.ApiResponse
+// @Failure 400 {object} response.ApiResponse
+// @Failure 401 {object} response.ApiResponse
+// @Security BearerAuth
+// @Router /api/v1/chat/unread-count [get]
 func (h *UnreadCountHandler) Serve(ctx httpx.Context) response.ApiResponse {
 	userID, ok := ctx.UserID()
 	if !ok {
