@@ -1,22 +1,33 @@
 package logger
 
 import (
-	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/geromme09/chat-system/internal/platform/config"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-func New(cfg config.Config) *slog.Logger {
-	options := &slog.HandlerOptions{
-		AddSource: false,
-		Level:     slog.LevelInfo,
+func New(cfg config.Config) (*zap.Logger, error) {
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.TimeKey = "ts"
+	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+
+	zapCfg := zap.Config{
+		Level:             zap.NewAtomicLevelAt(zap.InfoLevel),
+		Development:       cfg.Env == "dev",
+		DisableCaller:     true,
+		DisableStacktrace: true,
+		Sampling:          nil,
+		Encoding:          "json",
+		EncoderConfig:     encoderConfig,
+		OutputPaths:       []string{"stdout"},
+		ErrorOutputPaths:  []string{"stderr"},
 	}
 
-	if strings.EqualFold(cfg.LogFormat, "json") {
-		return slog.New(slog.NewJSONHandler(os.Stdout, options))
+	if strings.EqualFold(cfg.LogFormat, "text") {
+		zapCfg.Encoding = "console"
 	}
 
-	return slog.New(slog.NewTextHandler(os.Stdout, options))
+	return zapCfg.Build()
 }

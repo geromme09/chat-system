@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/auth"
 	"github.com/geromme09/chat-system/internal/platform/httpx"
 	"github.com/geromme09/chat-system/internal/platform/response"
+	"go.uber.org/zap"
 )
 
 func authMiddleware(tokenManager auth.TokenManager, next http.Handler) http.Handler {
@@ -86,14 +86,21 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-func requestLoggingMiddleware(logger *slog.Logger, logBodies bool, bodyMaxBytes int, next http.Handler) http.Handler {
+func requestLoggingMiddleware(logger *zap.Logger, logBodies bool, bodyMaxBytes int, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health", "/healthz", "/metrics":
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		requestID := requestIDFromHeader(r)
 		ctx := httpx.WithRequestID(r.Context(), requestID)
 		r = r.WithContext(ctx)
 		w.Header().Set("X-Request-ID", requestID)
 
-		requestBody, requestSize := captureRequestBody(r, logBodies, bodyMaxBytes)
+		shouldLogBodies := logBodies && r.URL.Path != "/metrics"
+		requestBody, requestSize := captureRequestBody(r, shouldLogBodies, bodyMaxBytes)
 		recorder := &statusRecorder{
 			ResponseWriter: w,
 			statusCode:     http.StatusOK,
@@ -103,30 +110,29 @@ func requestLoggingMiddleware(logger *slog.Logger, logBodies bool, bodyMaxBytes 
 
 		next.ServeHTTP(recorder, r)
 
-		attrs := []any{
-			"http request",
-			"request_id", requestID,
-			"method", r.Method,
-			"path", r.URL.Path,
-			"query", r.URL.RawQuery,
-			"status", recorder.statusCode,
-			"remote_addr", clientIP(r),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"request_bytes", requestSize,
-			"response_bytes", recorder.size,
+		fields := []zap.Field{
+			zap.String("request_id", requestID),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.String("query", r.URL.RawQuery),
+			zap.Int("status", recorder.statusCode),
+			zap.String("remote_addr", clientIP(r)),
+			zap.Int64("duration_ms", time.Since(start).Milliseconds()),
+			zap.Int("request_bytes", requestSize),
+			zap.Int("response_bytes", recorder.size),
 		}
 		if userID, ok := httpx.CurrentUserID(r.Context()); ok {
-			attrs = append(attrs, "user_id", userID)
+			fields = append(fields, zap.String("user_id", userID))
 		}
-		if logBodies {
-			attrs = append(
-				attrs,
-				"request_body", redactSensitiveJSON(requestBody),
-				"response_body", redactSensitiveJSON(recorder.body.String()),
+		if shouldLogBodies {
+			fields = append(
+				fields,
+				zap.String("request_body", redactSensitiveJSON(requestBody)),
+				zap.String("response_body", redactSensitiveJSON(recorder.body.String())),
 			)
 		}
 
-		logger.Info(attrs[0].(string), attrs[1:]...)
+		logger.Info("http request", fields...)
 	})
 }
 

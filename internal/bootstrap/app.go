@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	chatapp "github.com/geromme09/chat-system/internal/modules/chat/app"
@@ -20,30 +19,50 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/config"
 	appLogger "github.com/geromme09/chat-system/internal/platform/logger"
 	"github.com/geromme09/chat-system/internal/platform/messaging"
+	"github.com/geromme09/chat-system/internal/platform/observability"
 	"github.com/geromme09/chat-system/internal/platform/storage"
+	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
+	otelgorm "gorm.io/plugin/opentelemetry/tracing"
 )
 
 type App struct {
 	Config              config.Config
 	DB                  *gorm.DB
-	Logger              *slog.Logger
+	Logger              *zap.Logger
 	UserService         *userapp.Service
 	ChatService         *chatapp.Service
 	FeedService         *feedapp.Service
 	NotificationService *notificationapp.Service
 	ChatHub             *chatws.Hub
 	Publisher           messaging.Publisher
+	Shutdown            func(context.Context) error
 }
 
 func NewApp() (*App, error) {
 	cfg := config.Load()
-	logger := appLogger.New(cfg)
-	db, err := openPostgres(cfg)
+	logger, err := appLogger.New(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	telemetryShutdown, err := observability.Setup(context.Background(), cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := openPostgres(cfg, logger)
+	if err != nil {
+		_ = telemetryShutdown(context.Background())
+		return nil, err
+	}
+	if cfg.ObservabilityEnabled && cfg.TracingEnabled {
+		if err := db.Use(otelgorm.NewPlugin()); err != nil {
+			_ = telemetryShutdown(context.Background())
+			return nil, fmt.Errorf("enable gorm tracing: %w", err)
+		}
 	}
 
 	tokenManager := auth.NewTokenManager(cfg.TokenSecret)
@@ -65,6 +84,7 @@ func NewApp() (*App, error) {
 		},
 	})
 	if err != nil {
+		_ = telemetryShutdown(context.Background())
 		return nil, err
 	}
 	userRepo := userinfra.NewPostgresRepository(db, storageService)
@@ -90,17 +110,18 @@ func NewApp() (*App, error) {
 		NotificationService: notificationService,
 		ChatHub:             chatHub,
 		Publisher:           publisher,
+		Shutdown:            telemetryShutdown,
 	}, nil
 }
 
-func openPostgres(cfg config.Config) (*gorm.DB, error) {
+func openPostgres(cfg config.Config, logger *zap.Logger) (*gorm.DB, error) {
 	if cfg.PostgresDSN == "" {
 		return nil, errors.New("POSTGRES_DSN is required")
 	}
 
 	db, err := gorm.Open(postgres.Open(cfg.PostgresDSN), &gorm.Config{
 		TranslateError: true,
-		Logger:         newGormLogger(cfg),
+		Logger:         newGormLogger(cfg, logger),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
@@ -125,14 +146,14 @@ func openPostgres(cfg config.Config) (*gorm.DB, error) {
 	return db, nil
 }
 
-func newGormLogger(cfg config.Config) gormLogger.Interface {
+func newGormLogger(cfg config.Config, logger *zap.Logger) gormLogger.Interface {
 	level := gormLogger.Silent
 	if cfg.SQLLogDebug {
 		level = gormLogger.Info
 	}
 
 	return gormLogger.New(
-		gormLogWriter{logger: slog.Default()},
+		gormLogWriter{logger: logger.Named("gorm")},
 		gormLogger.Config{
 			SlowThreshold:             time.Duration(cfg.SQLSlowThresholdMS) * time.Millisecond,
 			LogLevel:                  level,
@@ -143,7 +164,7 @@ func newGormLogger(cfg config.Config) gormLogger.Interface {
 }
 
 type gormLogWriter struct {
-	logger *slog.Logger
+	logger *zap.Logger
 }
 
 func (w gormLogWriter) Printf(format string, args ...any) {

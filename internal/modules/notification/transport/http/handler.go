@@ -3,72 +3,79 @@ package http
 import (
 	"errors"
 	"strconv"
-	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	notificationapp "github.com/geromme09/chat-system/internal/modules/notification/app"
 	"github.com/geromme09/chat-system/internal/platform/httpx"
 	"github.com/geromme09/chat-system/internal/platform/response"
 )
 
-type Handler struct {
+type ListNotificationsHandler struct {
 	service *notificationapp.Service
 }
 
-const notificationPathPrefix = "/api/v1/notifications/"
-
-func NewHandler(service *notificationapp.Service) *Handler {
-	return &Handler{service: service}
+type MarkAllReadHandler struct {
+	service *notificationapp.Service
 }
 
-// Serve handles notification listing and read state.
-func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
-	userID, ok := ctx.UserID()
+type MarkNotificationReadHandler struct {
+	service *notificationapp.Service
+}
+
+func NewListNotificationsHandler(service *notificationapp.Service) *ListNotificationsHandler {
+	return &ListNotificationsHandler{service: service}
+}
+
+func NewMarkAllReadHandler(service *notificationapp.Service) *MarkAllReadHandler {
+	return &MarkAllReadHandler{service: service}
+}
+
+func NewMarkNotificationReadHandler(service *notificationapp.Service) *MarkNotificationReadHandler {
+	return &MarkNotificationReadHandler{service: service}
+}
+
+func (h *ListNotificationsHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := httpx.CurrentUserID(c.Request.Context())
 	if !ok {
 		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	switch ctx.Request.Method {
-	case "GET":
-		page, _ := strconv.Atoi(ctx.Query("page"))
-		limit, _ := strconv.Atoi(ctx.Query("limit"))
-		notifications, err := h.service.ListNotifications(ctx.Request.Context(), userID, notificationapp.ListNotificationsInput{
-			Page:  page,
-			Limit: limit,
-		})
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(notifications, nil)
-	case "POST":
-		if ctx.Request.URL.Path == "/api/v1/notifications/read-all" {
-			if err := h.service.MarkAllRead(ctx.Request.Context(), userID); err != nil {
-				return response.BadRequest(err)
-			}
-			return response.Ok(map[string]any{"status": "ok"}, nil)
-		}
-
-		notificationID, action, ok := parseNotificationPath(ctx.Request.URL.Path)
-		if !ok {
-			return response.NotFound("resource not found")
-		}
-		if action != "read" {
-			return response.NotFound("resource not found")
-		}
-		if err := h.service.MarkRead(ctx.Request.Context(), userID, notificationID); err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(map[string]any{"status": "ok"}, nil)
-	default:
-		return response.MethodNotAllowed()
+	page, _ := strconv.Atoi(c.Query("page"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	notifications, err := h.service.ListNotifications(c.Request.Context(), userID, notificationapp.ListNotificationsInput{
+		Page:  page,
+		Limit: limit,
+	})
+	if err != nil {
+		return response.BadRequest(err)
 	}
+
+	return response.Ok(notifications, nil)
 }
 
-func parseNotificationPath(path string) (notificationID string, action string, ok bool) {
-	path = strings.TrimPrefix(path, notificationPathPrefix)
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 {
-		return "", "", false
+func (h *MarkAllReadHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := httpx.CurrentUserID(c.Request.Context())
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	return parts[0], parts[1], true
+	if err := h.service.MarkAllRead(c.Request.Context(), userID); err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(map[string]any{"status": "ok"}, nil)
+}
+
+func (h *MarkNotificationReadHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := httpx.CurrentUserID(c.Request.Context())
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	if err := h.service.MarkRead(c.Request.Context(), userID, c.Param("id")); err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(map[string]any{"status": "ok"}, nil)
 }

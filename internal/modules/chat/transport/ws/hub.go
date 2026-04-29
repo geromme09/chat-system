@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/geromme09/chat-system/internal/modules/chat/domain"
 	notificationdomain "github.com/geromme09/chat-system/internal/modules/notification/domain"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,7 +28,7 @@ type ConversationLookup interface {
 }
 
 type Hub struct {
-	logger             *slog.Logger
+	logger             *zap.Logger
 	conversationLookup ConversationLookup
 	upgrader           websocket.Upgrader
 	mu                 sync.RWMutex
@@ -77,7 +77,7 @@ type inboundEnvelope struct {
 	ConversationID string `json:"conversation_id"`
 }
 
-func NewHub(logger *slog.Logger, conversationLookup ConversationLookup) *Hub {
+func NewHub(logger *zap.Logger, conversationLookup ConversationLookup) *Hub {
 	return &Hub{
 		logger:             logger,
 		conversationLookup: conversationLookup,
@@ -95,7 +95,7 @@ func NewHub(logger *slog.Logger, conversationLookup ConversationLookup) *Hub {
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request, userID string) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		h.logger.Error("upgrade websocket", "error", err)
+		h.logger.Error("upgrade websocket", zap.Error(err))
 		return
 	}
 

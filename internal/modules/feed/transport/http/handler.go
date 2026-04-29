@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	feedapp "github.com/geromme09/chat-system/internal/modules/feed/app"
 	feeddomain "github.com/geromme09/chat-system/internal/modules/feed/domain"
@@ -13,180 +14,350 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/response"
 )
 
-type Handler struct {
-	service     *feedapp.Service
-	userService userProfileReader
-}
-
 type userProfileReader interface {
 	GetMe(ctx context.Context, userID string) (userapp.AuthResult, error)
 }
 
-func NewHandler(service *feedapp.Service, userService userProfileReader) *Handler {
-	return &Handler{
-		service:     service,
-		userService: userService,
-	}
+type ListPostsHandler struct {
+	service *feedapp.Service
 }
 
-// Serve handles feed posts, reactions, comments, and replies.
-func (h *Handler) Serve(ctx httpx.Context) response.ApiResponse {
-	userID, ok := ctx.UserID()
+type GetPostHandler struct {
+	service *feedapp.Service
+}
+
+type CreatePostHandler struct {
+	service     *feedapp.Service
+	userService userProfileReader
+}
+
+type UpdatePostHandler struct {
+	service *feedapp.Service
+}
+
+type DeletePostHandler struct {
+	service *feedapp.Service
+}
+
+type ToggleReactionHandler struct {
+	service *feedapp.Service
+}
+
+type LikePostHandler struct {
+	service *feedapp.Service
+}
+
+type UnlikePostHandler struct {
+	service *feedapp.Service
+}
+
+type HidePostHandler struct {
+	service *feedapp.Service
+}
+
+type ReportPostHandler struct {
+	service *feedapp.Service
+}
+
+type ListCommentsHandler struct {
+	service *feedapp.Service
+}
+
+type CreateCommentHandler struct {
+	service     *feedapp.Service
+	userService userProfileReader
+}
+
+func NewListPostsHandler(service *feedapp.Service) *ListPostsHandler {
+	return &ListPostsHandler{service: service}
+}
+
+func NewGetPostHandler(service *feedapp.Service) *GetPostHandler {
+	return &GetPostHandler{service: service}
+}
+
+func NewCreatePostHandler(service *feedapp.Service, userService userProfileReader) *CreatePostHandler {
+	return &CreatePostHandler{service: service, userService: userService}
+}
+
+func NewUpdatePostHandler(service *feedapp.Service) *UpdatePostHandler {
+	return &UpdatePostHandler{service: service}
+}
+
+func NewDeletePostHandler(service *feedapp.Service) *DeletePostHandler {
+	return &DeletePostHandler{service: service}
+}
+
+func NewToggleReactionHandler(service *feedapp.Service) *ToggleReactionHandler {
+	return &ToggleReactionHandler{service: service}
+}
+
+func NewLikePostHandler(service *feedapp.Service) *LikePostHandler {
+	return &LikePostHandler{service: service}
+}
+
+func NewUnlikePostHandler(service *feedapp.Service) *UnlikePostHandler {
+	return &UnlikePostHandler{service: service}
+}
+
+func NewHidePostHandler(service *feedapp.Service) *HidePostHandler {
+	return &HidePostHandler{service: service}
+}
+
+func NewReportPostHandler(service *feedapp.Service) *ReportPostHandler {
+	return &ReportPostHandler{service: service}
+}
+
+func NewListCommentsHandler(service *feedapp.Service) *ListCommentsHandler {
+	return &ListCommentsHandler{service: service}
+}
+
+func NewCreateCommentHandler(service *feedapp.Service, userService userProfileReader) *CreateCommentHandler {
+	return &CreateCommentHandler{service: service, userService: userService}
+}
+
+func (h *ListPostsHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
 	if !ok {
 		return response.Unauthorized(errors.New("missing user context"))
 	}
 
-	postID, action := parseFeedPath(ctx.Request.URL.Path)
-
-	switch {
-	case ctx.Request.Method == "GET" && postID == "" && action == "":
-		limit, _ := strconv.Atoi(ctx.Query("limit"))
-		posts, err := h.service.ListPosts(ctx.Request.Context(), userID, feeddomain.ListPostsInput{
-			Cursor:       ctx.Query("cursor"),
-			AuthorUserID: ctx.Query("author_user_id"),
-			Limit:        limit,
-		})
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(posts, nil)
-	case ctx.Request.Method == "GET" && postID != "" && action == "":
-		post, err := h.service.GetPost(ctx.Request.Context(), userID, postID)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(post, nil)
-	case (ctx.Request.Method == "PATCH" || ctx.Request.Method == "PUT") && postID != "" && action == "":
-		var input feedapp.UpdatePostInput
-		if err := ctx.DecodeJSON(&input); err != nil {
-			return response.BadRequest(errors.New("invalid request body"))
-		}
-		post, err := h.service.UpdatePost(ctx.Request.Context(), userID, postID, input)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(post, nil)
-	case ctx.Request.Method == "DELETE" && postID != "" && action == "":
-		if err := h.service.DeletePost(ctx.Request.Context(), userID, postID); err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(map[string]bool{"deleted": true}, nil)
-	case ctx.Request.Method == "POST" && postID == "" && action == "":
-		var input feedapp.CreatePostInput
-		if httpx.IsMultipart(ctx.Request) {
-			if err := httpx.ParseMultipart(ctx.Request); err != nil {
-				return response.BadRequest(errors.New("invalid multipart body"))
-			}
-			input.Caption = httpx.FormString(ctx.Request, "caption")
-			imageDataURL, err := httpx.FileDataURL(ctx.Request, "image")
-			if err != nil {
-				return response.BadRequest(err)
-			}
-			input.ImageDataURL = imageDataURL
-		} else {
-			if err := ctx.DecodeJSON(&input); err != nil {
-				return response.BadRequest(errors.New("invalid request body"))
-			}
-		}
-
-		me, err := h.userService.GetMe(ctx.Request.Context(), userID)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-
-		post, err := h.service.CreatePost(ctx.Request.Context(), feeddomain.Author{
-			UserID:      me.User.ID,
-			Username:    me.User.Username,
-			DisplayName: me.Profile.DisplayName,
-			AvatarURL:   me.Profile.AvatarURL,
-			City:        me.Profile.City,
-		}, input)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-
-		return response.Created(post)
-	case ctx.Request.Method == "POST" && postID != "" && action == "react":
-		post, err := h.service.ToggleReaction(ctx.Request.Context(), userID, postID)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(post, nil)
-	case ctx.Request.Method == "POST" && postID != "" && action == "like":
-		post, err := h.service.SetReaction(ctx.Request.Context(), userID, postID, true)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(post, nil)
-	case ctx.Request.Method == "DELETE" && postID != "" && action == "like":
-		post, err := h.service.SetReaction(ctx.Request.Context(), userID, postID, false)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(post, nil)
-	case ctx.Request.Method == "POST" && postID != "" && action == "hide":
-		if err := h.service.HidePost(ctx.Request.Context(), userID, postID); err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(map[string]bool{"hidden": true}, nil)
-	case ctx.Request.Method == "POST" && postID != "" && action == "report":
-		var input feedapp.ReportPostInput
-		if err := ctx.DecodeJSON(&input); err != nil {
-			return response.BadRequest(errors.New("invalid request body"))
-		}
-		report, err := h.service.ReportPost(ctx.Request.Context(), userID, postID, input)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Created(report)
-	case ctx.Request.Method == "GET" && postID != "" && action == "comments":
-		limit, _ := strconv.Atoi(ctx.Query("limit"))
-		comments, err := h.service.ListComments(ctx.Request.Context(), postID, feeddomain.ListCommentsInput{
-			Cursor: ctx.Query("cursor"),
-			Limit:  limit,
-		})
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Ok(comments, nil)
-	case ctx.Request.Method == "POST" && postID != "" && action == "comments":
-		var input feedapp.CreateCommentInput
-		if err := ctx.DecodeJSON(&input); err != nil {
-			return response.BadRequest(errors.New("invalid request body"))
-		}
-
-		me, err := h.userService.GetMe(ctx.Request.Context(), userID)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-
-		comment, err := h.service.CreateComment(ctx.Request.Context(), feeddomain.Author{
-			UserID:      me.User.ID,
-			Username:    me.User.Username,
-			DisplayName: me.Profile.DisplayName,
-			AvatarURL:   me.Profile.AvatarURL,
-			City:        me.Profile.City,
-		}, postID, input)
-		if err != nil {
-			return response.BadRequest(err)
-		}
-		return response.Created(comment)
-	default:
-		return response.MethodNotAllowed()
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	posts, err := h.service.ListPosts(c.Request.Context(), userID, feeddomain.ListPostsInput{
+		Cursor:       c.Query("cursor"),
+		AuthorUserID: c.Query("author_user_id"),
+		Limit:        limit,
+	})
+	if err != nil {
+		return response.BadRequest(err)
 	}
+
+	return response.Ok(posts, nil)
 }
 
-func parseFeedPath(path string) (postID string, action string) {
-	path = strings.TrimPrefix(path, "/api/v1/feed")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) == 1 && parts[0] == "" {
-		return "", ""
+func (h *GetPostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
 	}
-	if len(parts) == 1 {
-		return parts[0], ""
+
+	post, err := h.service.GetPost(c.Request.Context(), userID, c.Param("id"))
+	if err != nil {
+		return response.BadRequest(err)
 	}
-	if len(parts) != 2 {
-		return "", "invalid"
+
+	return response.Ok(post, nil)
+}
+
+func (h *CreatePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
 	}
-	return parts[0], parts[1]
+
+	var input feedapp.CreatePostInput
+	if httpx.IsMultipart(c.Request) {
+		if err := httpx.ParseMultipart(c.Request); err != nil {
+			return response.BadRequest(errors.New("invalid multipart body"))
+		}
+		input.Caption = httpx.FormString(c.Request, "caption")
+		imageDataURL, err := httpx.FileDataURL(c.Request, "image")
+		if err != nil {
+			return response.BadRequest(err)
+		}
+		input.ImageDataURL = imageDataURL
+	} else if err := c.ShouldBindJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
+	}
+
+	author, apiRes := h.currentAuthor(c, userID)
+	if apiRes != nil {
+		return *apiRes
+	}
+
+	post, err := h.service.CreatePost(c.Request.Context(), author, input)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Created(post)
+}
+
+func (h *UpdatePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	var input feedapp.UpdatePostInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
+	}
+
+	post, err := h.service.UpdatePost(c.Request.Context(), userID, c.Param("id"), input)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(post, nil)
+}
+
+func (h *DeletePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	if err := h.service.DeletePost(c.Request.Context(), userID, c.Param("id")); err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(map[string]bool{"deleted": true}, nil)
+}
+
+func (h *ToggleReactionHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	post, err := h.service.ToggleReaction(c.Request.Context(), userID, c.Param("id"))
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(post, nil)
+}
+
+func (h *LikePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	post, err := h.service.SetReaction(c.Request.Context(), userID, c.Param("id"), true)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(post, nil)
+}
+
+func (h *UnlikePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	post, err := h.service.SetReaction(c.Request.Context(), userID, c.Param("id"), false)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(post, nil)
+}
+
+func (h *HidePostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	if err := h.service.HidePost(c.Request.Context(), userID, c.Param("id")); err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(map[string]bool{"hidden": true}, nil)
+}
+
+func (h *ReportPostHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	var input feedapp.ReportPostInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
+	}
+
+	report, err := h.service.ReportPost(c.Request.Context(), userID, c.Param("id"), input)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Created(report)
+}
+
+func (h *ListCommentsHandler) Handle(c *gin.Context) response.ApiResponse {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	comments, err := h.service.ListComments(c.Request.Context(), c.Param("id"), feeddomain.ListCommentsInput{
+		Cursor: c.Query("cursor"),
+		Limit:  limit,
+	})
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Ok(comments, nil)
+}
+
+func (h *CreateCommentHandler) Handle(c *gin.Context) response.ApiResponse {
+	userID, ok := currentUserID(c)
+	if !ok {
+		return response.Unauthorized(errors.New("missing user context"))
+	}
+
+	var input feedapp.CreateCommentInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		return response.BadRequest(errors.New("invalid request body"))
+	}
+
+	author, apiRes := h.currentAuthor(c, userID)
+	if apiRes != nil {
+		return *apiRes
+	}
+
+	comment, err := h.service.CreateComment(c.Request.Context(), author, c.Param("id"), input)
+	if err != nil {
+		return response.BadRequest(err)
+	}
+
+	return response.Created(comment)
+}
+
+func (h *CreatePostHandler) currentAuthor(c *gin.Context, userID string) (feeddomain.Author, *response.ApiResponse) {
+	me, err := h.userService.GetMe(c.Request.Context(), userID)
+	if err != nil {
+		apiRes := response.BadRequest(err)
+		return feeddomain.Author{}, &apiRes
+	}
+
+	return feeddomain.Author{
+		UserID:      me.User.ID,
+		Username:    me.User.Username,
+		DisplayName: me.Profile.DisplayName,
+		AvatarURL:   me.Profile.AvatarURL,
+		City:        me.Profile.City,
+	}, nil
+}
+
+func (h *CreateCommentHandler) currentAuthor(c *gin.Context, userID string) (feeddomain.Author, *response.ApiResponse) {
+	me, err := h.userService.GetMe(c.Request.Context(), userID)
+	if err != nil {
+		apiRes := response.BadRequest(err)
+		return feeddomain.Author{}, &apiRes
+	}
+
+	return feeddomain.Author{
+		UserID:      me.User.ID,
+		Username:    me.User.Username,
+		DisplayName: me.Profile.DisplayName,
+		AvatarURL:   me.Profile.AvatarURL,
+		City:        me.Profile.City,
+	}, nil
+}
+
+func currentUserID(c *gin.Context) (string, bool) {
+	return httpx.CurrentUserID(c.Request.Context())
 }

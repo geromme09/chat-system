@@ -100,12 +100,17 @@ FaceOff Social may display game-owned data, but it should not become the source 
 ## Current Tech Stack
 
 - Backend: Go 1.25
-- HTTP API: standard library `net/http`
+- HTTP API: Gin
 - Database: PostgreSQL
 - ORM: GORM
 - Cache / realtime support: Redis
 - Messaging infra: RabbitMQ
 - Object storage: MinIO locally, through an S3-compatible storage adapter
+- Structured logging: Zap
+- Metrics: Prometheus
+- Tracing: OpenTelemetry -> Jaeger
+- Log aggregation: Loki + Promtail
+- Dashboards: Grafana
 - Mobile app: Flutter
 - Local orchestration: Docker Compose
 - API docs: Swagger / OpenAPI
@@ -121,6 +126,8 @@ Messaging note:
 - System overview: [docs/architecture/system-overview.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/system-overview.md)
 - Domain boundaries: [docs/architecture/domain-boundaries.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/domain-boundaries.md)
 - Architecture diagrams: [docs/architecture/architecture-diagrams.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/architecture-diagrams.md)
+- Current vs target system design: [docs/architecture/current-vs-target-system-design.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/architecture/current-vs-target-system-design.md)
+- Observability backlog: [docs/observability-backlog.md](/Users/gerommebeligon/WorkSpace/portfolio-projects/chat-system/docs/observability-backlog.md)
 
 ## Backend Quick Start
 
@@ -166,6 +173,13 @@ STORAGE_S3_REGION=us-east-1
 STORAGE_S3_USE_SSL=false
 STORAGE_S3_PROFILE_BUCKET=profile-media
 STORAGE_S3_POST_BUCKET=post-media
+OBS_ENABLED=true
+OBS_SERVICE_NAME=chat-system-api
+TRACING_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4318
+OTEL_EXPORTER_OTLP_INSECURE=true
+OTEL_TRACE_SAMPLE_RATIO=1
+METRICS_ENABLED=true
 ```
 
 ## Local Infrastructure With Docker
@@ -181,12 +195,31 @@ make migrate-logs
 Local service ports:
 
 - API: `http://localhost:8080`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+- Jaeger: `http://localhost:16686`
+- Loki: `http://localhost:3100`
 - MinIO API: `http://localhost:9000`
 - MinIO Console: `http://localhost:9001`
 - Postgres: `localhost:5432`
 - Redis: `localhost:6379`
 - RabbitMQ: `localhost:5672`
 - RabbitMQ Console: `http://localhost:15672`
+
+Grafana defaults:
+
+- user: `admin`
+- password: `admin`
+
+## Observability
+
+Current local observability flow:
+
+- API writes structured JSON logs to `stdout` with Zap
+- Promtail tails Docker container logs and ships them to Loki
+- Prometheus scrapes `GET /metrics`
+- OpenTelemetry sends traces to Jaeger over OTLP HTTP
+- Grafana reads Prometheus, Loki, and Jaeger as datasources
 
 ## Migrations
 

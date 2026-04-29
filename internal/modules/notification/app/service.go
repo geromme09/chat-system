@@ -9,7 +9,11 @@ import (
 	notificationdomain "github.com/geromme09/chat-system/internal/modules/notification/domain"
 	userdomain "github.com/geromme09/chat-system/internal/modules/user/domain"
 	"github.com/geromme09/chat-system/internal/platform/identity"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("notification-service")
 
 type Channel interface {
 	Deliver(ctx context.Context, notification notificationdomain.Notification) error
@@ -99,6 +103,12 @@ func (s *Service) MarkRead(ctx context.Context, userID, notificationID string) e
 }
 
 func (s *Service) NotifyFriendRequestCreated(ctx context.Context, friendRequest userdomain.FriendRequest) error {
+	ctx, span := tracer.Start(ctx, "notification.friend_request_created")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("notification.user_id", friendRequest.AddresseeID),
+		attribute.String("friend_request.id", friendRequest.ID),
+	)
 	return s.createAndDispatch(ctx, buildNotification(
 		s.idSource(),
 		s.timeSource(),
@@ -115,6 +125,12 @@ func (s *Service) NotifyFriendRequestResponded(ctx context.Context, friendReques
 		return nil
 	}
 
+	ctx, span := tracer.Start(ctx, "notification.friend_request_responded")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("notification.user_id", friendRequest.RequesterID),
+		attribute.String("friend_request.id", friendRequest.ID),
+	)
 	return s.createAndDispatch(ctx, buildNotification(
 		s.idSource(),
 		s.timeSource(),
@@ -131,6 +147,13 @@ func (s *Service) NotifyFeedPostComment(ctx context.Context, recipientUserID str
 		return nil
 	}
 
+	ctx, span := tracer.Start(ctx, "notification.feed_post_comment")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("notification.user_id", recipientUserID),
+		attribute.String("post.id", post.ID),
+		attribute.String("comment.id", comment.ID),
+	)
 	return s.createAndDispatch(ctx, buildNotification(
 		s.idSource(),
 		s.timeSource(),
@@ -147,6 +170,14 @@ func (s *Service) NotifyFeedCommentReply(ctx context.Context, recipientUserID st
 		return nil
 	}
 
+	ctx, span := tracer.Start(ctx, "notification.feed_comment_reply")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("notification.user_id", recipientUserID),
+		attribute.String("post.id", post.ID),
+		attribute.String("comment.id", comment.ID),
+		attribute.String("parent_comment.id", parentComment.ID),
+	)
 	return s.createAndDispatch(ctx, buildNotification(
 		s.idSource(),
 		s.timeSource(),
@@ -159,13 +190,25 @@ func (s *Service) NotifyFeedCommentReply(ctx context.Context, recipientUserID st
 }
 
 func (s *Service) createAndDispatch(ctx context.Context, notification notificationdomain.Notification) error {
+	ctx, span := tracer.Start(ctx, "notification.create_and_dispatch")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("notification.id", notification.ID),
+		attribute.String("notification.type", notification.Type),
+		attribute.String("notification.user_id", notification.UserID),
+	)
+
+	_, createSpan := tracer.Start(ctx, "notification.persist")
 	created, err := s.repo.Create(ctx, notification)
+	createSpan.End()
 	if err != nil {
 		return err
 	}
 
 	for _, channel := range s.factory.Build(created) {
+		_, deliverSpan := tracer.Start(ctx, "notification.deliver_channel")
 		_ = channel.Deliver(ctx, created)
+		deliverSpan.End()
 	}
 
 	return nil

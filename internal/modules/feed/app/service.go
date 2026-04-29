@@ -12,7 +12,11 @@ import (
 	"github.com/geromme09/chat-system/internal/modules/feed/domain"
 	"github.com/geromme09/chat-system/internal/platform/identity"
 	"github.com/geromme09/chat-system/internal/platform/storage"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var tracer = otel.Tracer("feed-service")
 
 type MediaStorage interface {
 	SaveFeedImageDataURL(ctx context.Context, dataURL string) (storage.ObjectRef, error)
@@ -112,6 +116,9 @@ func (s *Service) ListPosts(ctx context.Context, actorUserID string, input domai
 }
 
 func (s *Service) CreatePost(ctx context.Context, author domain.Author, input CreatePostInput) (domain.Post, error) {
+	ctx, span := tracer.Start(ctx, "feed.create_post")
+	defer span.End()
+
 	caption := strings.TrimSpace(input.Caption)
 	imageDataURL := strings.TrimSpace(input.ImageDataURL)
 
@@ -129,8 +136,14 @@ func (s *Service) CreatePost(ctx context.Context, author domain.Author, input Cr
 		if s.storage == nil {
 			return domain.Post{}, errors.New("media storage is not configured")
 		}
+		_, storageSpan := tracer.Start(ctx, "feed.create_post.save_image")
 		var err error
 		imageRef, err = s.storage.SaveFeedImageDataURL(ctx, imageDataURL)
+		storageSpan.SetAttributes(
+			attribute.String("storage.bucket", imageRef.Bucket),
+			attribute.String("storage.object_key", imageRef.ObjectKey),
+		)
+		storageSpan.End()
 		if err != nil {
 			return domain.Post{}, err
 		}
@@ -150,9 +163,16 @@ func (s *Service) CreatePost(ctx context.Context, author domain.Author, input Cr
 		CreatedAt:   s.timeSource(),
 	}
 
+	_, createPostSpan := tracer.Start(ctx, "feed.create_post.persist_post")
 	if err := s.repo.CreatePost(ctx, post); err != nil {
+		createPostSpan.End()
 		return domain.Post{}, err
 	}
+	createPostSpan.End()
+	span.SetAttributes(
+		attribute.String("post.id", post.ID),
+		attribute.String("post.type", string(post.Type)),
+	)
 
 	return post, nil
 }

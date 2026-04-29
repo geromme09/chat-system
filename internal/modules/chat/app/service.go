@@ -11,9 +11,12 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/identity"
 	"github.com/geromme09/chat-system/internal/platform/messaging"
 	"github.com/geromme09/chat-system/internal/platform/validate"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var errConversationAccessDenied = errors.New("conversation access denied")
+var tracer = otel.Tracer("chat-service")
 
 type UserLookup interface {
 	GetUser(ctx context.Context, userID string) (userdomain.User, error)
@@ -57,6 +60,9 @@ func NewService(repo domain.Repository, users UserLookup, publisher messaging.Pu
 }
 
 func (s *Service) CreateConversation(ctx context.Context, actorUserID string, input CreateConversationInput) (domain.Conversation, error) {
+	ctx, span := tracer.Start(ctx, "chat.create_conversation")
+	defer span.End()
+
 	if err := validate.Struct(input); err != nil {
 		return domain.Conversation{}, err
 	}
@@ -71,7 +77,10 @@ func (s *Service) CreateConversation(ctx context.Context, actorUserID string, in
 		if _, exists := participantSet[participantID]; exists {
 			continue
 		}
-		if _, err := s.users.GetUser(ctx, participantID); err != nil {
+		_, userLookupSpan := tracer.Start(ctx, "chat.create_conversation.lookup_participant")
+		_, err := s.users.GetUser(ctx, participantID)
+		userLookupSpan.End()
+		if err != nil {
 			return domain.Conversation{}, err
 		}
 		participantSet[participantID] = struct{}{}
@@ -83,7 +92,9 @@ func (s *Service) CreateConversation(ctx context.Context, actorUserID string, in
 	}
 
 	friendID := participantIDs[0]
+	_, friendshipSpan := tracer.Start(ctx, "chat.create_conversation.check_friendship")
 	friendship, err := s.users.GetFriendshipBetween(ctx, actorUserID, friendID)
+	friendshipSpan.End()
 	if err != nil {
 		return domain.Conversation{}, err
 	}
@@ -100,9 +111,13 @@ func (s *Service) CreateConversation(ctx context.Context, actorUserID string, in
 		ParticipantIDs: []string{actorUserID, friendID},
 		CreatedAt:      s.timeSource(),
 	}
+	_, createConversationSpan := tracer.Start(ctx, "chat.create_conversation.persist_conversation")
 	if err := s.repo.CreateConversation(ctx, conversation); err != nil {
+		createConversationSpan.End()
 		return domain.Conversation{}, err
 	}
+	createConversationSpan.End()
+	span.SetAttributes(attribute.String("conversation.id", conversation.ID))
 
 	return s.repo.GetConversation(ctx, conversation.ID)
 }
@@ -175,6 +190,9 @@ func (s *Service) ListMessages(ctx context.Context, actorUserID, conversationID 
 }
 
 func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID string, input SendMessageInput) (domain.Message, error) {
+	ctx, span := tracer.Start(ctx, "chat.send_message")
+	defer span.End()
+
 	if err := validate.Struct(input); err != nil {
 		return domain.Message{}, err
 	}
@@ -187,7 +205,9 @@ func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID s
 		return domain.Message{}, errors.New("message body is too long")
 	}
 
+	_, accessSpan := tracer.Start(ctx, "chat.send_message.get_accessible_conversation")
 	conversation, err := s.getAccessibleConversation(ctx, actorUserID, conversationID)
+	accessSpan.End()
 	if err != nil {
 		return domain.Message{}, err
 	}
@@ -199,10 +219,14 @@ func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID s
 		Body:           body,
 		CreatedAt:      s.timeSource(),
 	}
+	_, createMessageSpan := tracer.Start(ctx, "chat.send_message.persist_message")
 	if err := s.repo.CreateMessage(ctx, message); err != nil {
+		createMessageSpan.End()
 		return domain.Message{}, err
 	}
+	createMessageSpan.End()
 
+	_, publishSpan := tracer.Start(ctx, "chat.send_message.publish_event")
 	_ = s.publisher.Publish(ctx, messaging.Event{
 		Name:        domain.EventMessageCreated,
 		Version:     1,
@@ -212,10 +236,19 @@ func (s *Service) SendMessage(ctx context.Context, actorUserID, conversationID s
 			domain.EventPayloadMessage: message,
 		},
 	})
+	publishSpan.End()
 
 	if s.notifier != nil {
+		_, realtimeSpan := tracer.Start(ctx, "chat.send_message.notify_realtime")
 		_ = s.notifier.NotifyMessageCreated(ctx, conversation, message)
+		realtimeSpan.End()
 	}
+
+	span.SetAttributes(
+		attribute.String("conversation.id", conversationID),
+		attribute.String("message.id", message.ID),
+		attribute.String("user.id", actorUserID),
+	)
 
 	return message, nil
 }

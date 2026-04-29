@@ -204,6 +204,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: AppSpacing.lg),
             _EditAvatar(
               displayName: displayName,
+              currentAvatarUrl: appSession.profile?.avatarUrl ?? '',
               selectedAvatar: _selectedAvatar,
               onChangePhoto: _showAvatarOptions,
             ),
@@ -304,19 +305,22 @@ class _EditTopBar extends StatelessWidget {
 class _EditAvatar extends StatelessWidget {
   const _EditAvatar({
     required this.displayName,
+    required this.currentAvatarUrl,
     required this.selectedAvatar,
     required this.onChangePhoto,
   });
 
   final String displayName;
+  final String currentAvatarUrl;
   final XFile? selectedAvatar;
   final VoidCallback onChangePhoto;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Stack(
+    return Center(
+      child: GestureDetector(
+        onTap: onChangePhoto,
+        child: Stack(
           clipBehavior: Clip.none,
           children: [
             Container(
@@ -327,21 +331,7 @@ class _EditAvatar extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               clipBehavior: Clip.antiAlias,
-              child: selectedAvatar == null
-                  ? Center(
-                      child: Text(
-                        _initialsFor(displayName),
-                        style:
-                            Theme.of(context).textTheme.displaySmall?.copyWith(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                      ),
-                    )
-                  : Image.file(
-                      File(selectedAvatar!.path),
-                      fit: BoxFit.cover,
-                    ),
+              child: _buildAvatarContent(context),
             ),
             Positioned(
               right: 0,
@@ -363,12 +353,43 @@ class _EditAvatar extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
-        TextButton(
-          onPressed: onChangePhoto,
-          child: const Text('Change photo'),
-        ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildAvatarContent(BuildContext context) {
+    if (selectedAvatar != null) {
+      return Image.file(
+        File(selectedAvatar!.path),
+        fit: BoxFit.cover,
+      );
+    }
+
+    final imageUrl = currentAvatarUrl.trim();
+    if (imageUrl.isNotEmpty) {
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _buildInitials(context),
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        },
+      );
+    }
+
+    return _buildInitials(context);
+  }
+
+  Widget _buildInitials(BuildContext context) {
+    return Center(
+      child: Text(
+        _initialsFor(displayName),
+        style: Theme.of(context).textTheme.displaySmall?.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w800,
+            ),
+      ),
     );
   }
 }

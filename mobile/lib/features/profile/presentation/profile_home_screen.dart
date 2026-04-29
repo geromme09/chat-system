@@ -215,6 +215,7 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
     final displayName = _valueOrFallback(profile?.displayName, 'Player');
     final username = _valueOrFallback(appSession.username, 'player');
     final location = _locationLabel(profile);
+    final canGoBack = Navigator.of(context).canPop();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -226,7 +227,7 @@ class _ProfileHomeScreenState extends State<ProfileHomeScreen> {
             ProfileHeader(
               displayName: displayName,
               avatarUrl: profile?.avatarUrl ?? '',
-              onBack: () => Navigator.of(context).maybePop(),
+              onBack: canGoBack ? () => Navigator.of(context).maybePop() : null,
               onMenu: () => Navigator.of(context)
                   .pushNamed(AppRoute.accountSettings.path),
             ),
@@ -363,7 +364,7 @@ class ProfileHeader extends StatelessWidget {
 
   final String displayName;
   final String avatarUrl;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
   final VoidCallback onMenu;
 
   @override
@@ -443,9 +444,15 @@ class ProfileHeader extends StatelessWidget {
             right: AppSpacing.md,
             child: Row(
               children: [
-                _RoundIconButton(
-                  icon: Icons.arrow_back_ios_new_rounded,
-                  onTap: onBack,
+                SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: onBack == null
+                      ? null
+                      : _RoundIconButton(
+                          icon: Icons.arrow_back_ios_new_rounded,
+                          onTap: onBack!,
+                        ),
                 ),
                 const Spacer(),
                 _RoundIconButton(

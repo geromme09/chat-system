@@ -20,7 +20,7 @@ It does **not** own the future fighting gameplay stack.
 - `cmd/api`
   HTTP API for mobile clients and future trusted game integrations
 - `cmd/consumer`
-  asynchronous event processing and notifications
+  placeholder for future async consumers and outbox/event workers
 - `cmd/migrate`
   migration visibility and migration execution
 - `mobile/`
@@ -34,6 +34,12 @@ Current local stack:
 - migrations via a dedicated Docker container
 - RabbitMQ via Docker
 - Redis via Docker
+- MinIO via Docker
+- Jaeger via Docker
+- Prometheus via Docker
+- Loki via Docker
+- Promtail via Docker
+- Grafana via Docker
 - API in Docker or on the host
 - mobile app run separately with Flutter
 
@@ -58,33 +64,40 @@ Current module ownership in this repo:
 
 - `user`
   signup, login, sessions, profile
-- `friendship`
+- `friend`
   friend requests and accepted friend graph
+- `feed`
+  posts, media, reactions, comments, replies
 - `chat`
   conversations, messages, unread state, realtime delivery
 - `notification`
   in-app notification fanout and read state
 
-Modules intentionally de-emphasized for this pivot:
+Modules currently not in active backend scope:
 
 - `discovery`
 - `challenge`
-- `feed`
 - `ranking`
-
-These can remain as future placeholders, but they are no longer the product center of gravity.
 
 ## Current Implementation Status
 
 Built and working:
 
 - modular monolith backend in Go
+- Gin transport layer
 - Postgres-backed social flows
 - auth and profile management
 - profile completion with social-only metadata
 - friend requests and accepted friendships
+- feed posts, reactions, comments, replies
+- multipart image upload to MinIO through an S3-compatible storage adapter
 - notifications
 - 1:1 chat with realtime socket updates
+- Zap structured logging
+- Prometheus metrics
+- OpenTelemetry tracing to Jaeger
+- Loki log aggregation through Promtail
+- Grafana datasources for Prometheus, Loki, and Jaeger
 - Flutter mobile UI for social flows
 - paginated friends and notifications lists
 

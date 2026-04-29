@@ -14,6 +14,13 @@ type Config struct {
 	LogBodyMaxBytes        int
 	SQLLogDebug            bool
 	SQLSlowThresholdMS     int
+	ObservabilityEnabled   bool
+	ObservabilitySvcName   string
+	TracingEnabled         bool
+	TracingOTLPEndpoint    string
+	TracingOTLPInsecure    bool
+	TracingSampleRatio     float64
+	MetricsEnabled         bool
 	TokenSecret            string
 	PostgresDSN            string
 	PostgresMaxOpenConns   int
@@ -53,6 +60,13 @@ func Load() Config {
 		LogBodyMaxBytes:        getEnvInt("LOG_BODY_MAX_BYTES", 4096),
 		SQLLogDebug:            getEnvBool("SQL_LOG_DEBUG", defaultSQLLogDebug(env)),
 		SQLSlowThresholdMS:     getEnvInt("SQL_SLOW_THRESHOLD_MS", 200),
+		ObservabilityEnabled:   getEnvBool("OBS_ENABLED", true),
+		ObservabilitySvcName:   getEnv("OBS_SERVICE_NAME", "chat-system-api"),
+		TracingEnabled:         getEnvBool("TRACING_ENABLED", true),
+		TracingOTLPEndpoint:    getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "jaeger:4318"),
+		TracingOTLPInsecure:    getEnvBool("OTEL_EXPORTER_OTLP_INSECURE", true),
+		TracingSampleRatio:     getEnvFloat64("OTEL_TRACE_SAMPLE_RATIO", 1),
+		MetricsEnabled:         getEnvBool("METRICS_ENABLED", true),
 		TokenSecret:            getEnv("TOKEN_SECRET", "change-me"),
 		PostgresDSN:            getEnv("POSTGRES_DSN", ""),
 		PostgresMaxOpenConns:   getEnvInt("POSTGRES_MAX_OPEN_CONNS", 25),
@@ -149,6 +163,20 @@ func getEnvInt(key string, fallback int) int {
 	}
 
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func getEnvFloat64(key string, fallback float64) float64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return fallback
 	}

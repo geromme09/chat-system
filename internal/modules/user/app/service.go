@@ -13,11 +13,14 @@ import (
 	"github.com/geromme09/chat-system/internal/platform/messaging"
 	"github.com/geromme09/chat-system/internal/platform/storage"
 	"github.com/geromme09/chat-system/internal/platform/validate"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrDuplicateFriendRequest = errors.New("friend request already exists")
 var usernamePattern = regexp.MustCompile(`^[a-z0-9_]{3,20}$`)
+var tracer = otel.Tracer("user-service")
 
 type SignUpInput struct {
 	Email         string `json:"email" validate:"required"`
@@ -105,6 +108,9 @@ func NewService(repo domain.Repository, hasher auth.PasswordHasher, tokens auth.
 }
 
 func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, error) {
+	ctx, span := tracer.Start(ctx, "user.signup")
+	defer span.End()
+
 	if err := validate.Struct(input); err != nil {
 		return AuthResult{}, err
 	}
@@ -144,7 +150,13 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 		LastModified: now,
 	}
 	if strings.TrimSpace(input.AvatarDataURL) != "" {
+		_, avatarSpan := tracer.Start(ctx, "user.signup.save_avatar")
 		avatarRef, err := s.storage.SaveAvatarDataURL(ctx, userID, input.AvatarDataURL)
+		avatarSpan.SetAttributes(
+			attribute.String("storage.bucket", avatarRef.Bucket),
+			attribute.String("storage.object_key", avatarRef.ObjectKey),
+		)
+		avatarSpan.End()
 		if err != nil {
 			return AuthResult{}, err
 		}
@@ -154,12 +166,22 @@ func (s *Service) SignUp(ctx context.Context, input SignUpInput) (AuthResult, er
 		profile.AvatarType = avatarRef.ContentType
 	}
 
+	_, createUserSpan := tracer.Start(ctx, "user.signup.create_user")
 	if err := s.repo.CreateUser(ctx, user); err != nil {
+		createUserSpan.End()
 		return AuthResult{}, err
 	}
+	createUserSpan.End()
+	_, upsertProfileSpan := tracer.Start(ctx, "user.signup.upsert_profile")
 	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
+		upsertProfileSpan.End()
 		return AuthResult{}, err
 	}
+	upsertProfileSpan.End()
+	span.SetAttributes(
+		attribute.String("user.id", user.ID),
+		attribute.String("user.username", user.Username),
+	)
 
 	return AuthResult{
 		Token:   s.tokens.Issue(user.ID),
@@ -376,6 +398,10 @@ func (s *Service) GetPublicProfile(ctx context.Context, actorUserID, targetUserI
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (domain.Profile, error) {
+	ctx, span := tracer.Start(ctx, "user.update_profile")
+	defer span.End()
+	span.SetAttributes(attribute.String("user.id", userID))
+
 	current, err := s.repo.GetProfile(ctx, userID)
 	if err != nil {
 		return domain.Profile{}, err
@@ -391,7 +417,13 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, input Update
 		ObjectKey: current.AvatarKey,
 	}
 	if strings.TrimSpace(input.AvatarDataURL) != "" {
+		_, avatarSpan := tracer.Start(ctx, "user.update_profile.save_avatar")
 		avatarRef, err := s.storage.SaveAvatarDataURL(ctx, userID, input.AvatarDataURL)
+		avatarSpan.SetAttributes(
+			attribute.String("storage.bucket", avatarRef.Bucket),
+			attribute.String("storage.object_key", avatarRef.ObjectKey),
+		)
+		avatarSpan.End()
 		if err != nil {
 			return domain.Profile{}, err
 		}
@@ -407,14 +439,19 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, input Update
 	current.Visible = input.Visible
 	current.LastModified = s.timeSource()
 
+	_, upsertProfileSpan := tracer.Start(ctx, "user.update_profile.upsert_profile")
 	if err := s.repo.UpsertProfile(ctx, current); err != nil {
+		upsertProfileSpan.End()
 		return domain.Profile{}, err
 	}
+	upsertProfileSpan.End()
 	if s.storage != nil &&
 		previousAvatar.ObjectKey != "" &&
 		(previousAvatar.Bucket != current.AvatarBucket ||
 			previousAvatar.ObjectKey != current.AvatarKey) {
+		_, deleteAvatarSpan := tracer.Start(ctx, "user.update_profile.delete_old_avatar")
 		_ = s.storage.DeleteObject(ctx, previousAvatar)
+		deleteAvatarSpan.End()
 	}
 
 	return current, nil
