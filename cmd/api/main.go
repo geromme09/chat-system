@@ -5,7 +5,7 @@ import (
 	"log"
 
 	_ "github.com/geromme09/chat-system/docs/swagger"
-	"github.com/geromme09/chat-system/internal/bootstrap"
+	appcore "github.com/geromme09/chat-system/internal/app"
 )
 
 // @title Chat System API
@@ -17,7 +17,7 @@ import (
 // @BasePath /
 
 func main() {
-	app, err := bootstrap.NewApp()
+	app, err := appcore.NewApp()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func main() {
 		}
 	}()
 
-	if err := bootstrap.RunHTTP(app); err != nil {
+	if err := appcore.RunHTTP(app); err != nil {
 		log.Fatal(err)
 	}
 }

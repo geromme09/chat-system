@@ -1,4 +1,4 @@
-package bootstrap
+package app
 
 import "github.com/geromme09/chat-system/internal/platform/response"
 

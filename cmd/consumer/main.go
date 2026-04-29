@@ -4,11 +4,11 @@ import (
 	"context"
 	"log"
 
-	"github.com/geromme09/chat-system/internal/bootstrap"
+	appcore "github.com/geromme09/chat-system/internal/app"
 )
 
 func main() {
-	app, err := bootstrap.NewApp()
+	app, err := appcore.NewApp()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func main() {
 		}
 	}()
 
-	if err := bootstrap.RunConsumer(app); err != nil {
+	if err := appcore.RunConsumer(app); err != nil {
 		log.Fatal(err)
 	}
 }

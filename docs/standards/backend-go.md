@@ -33,7 +33,7 @@ This document should be used together with [go-backend-skill.md](/Users/gerommeb
 - Prefer consumer-defined interfaces for cross-domain collaboration so the dependency stays small and use-case specific.
 - A domain must not import another domain's `infra` package.
 - A domain must not import another domain's `transport` package.
-- Cross-domain wiring belongs in `internal/bootstrap`.
+- Cross-domain wiring belongs in `internal/app`.
 - If a domain starts depending on too many methods from another domain, stop and define a smaller boundary instead of importing the whole service or repository contract.
 
 ## Response Format Direction
