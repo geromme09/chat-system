@@ -218,8 +218,31 @@ Current local observability flow:
 - API writes structured JSON logs to `stdout` with Zap
 - Promtail tails Docker container logs and ships them to Loki
 - Prometheus scrapes `GET /metrics`
+- API exports database connection pool stats from `sql.DB.Stats()`
 - OpenTelemetry sends traces to Jaeger over OTLP HTTP
 - Grafana reads Prometheus, Loki, and Jaeger as datasources
+
+Current database metrics exposed from the API:
+
+- `chat_system_db_connections_open`
+- `chat_system_db_connections_in_use`
+- `chat_system_db_connections_idle`
+- `chat_system_db_connections_max_open`
+- `chat_system_db_wait_count_total`
+- `chat_system_db_wait_duration_seconds_total`
+- `chat_system_db_max_idle_closed_total`
+- `chat_system_db_max_idle_time_closed_total`
+- `chat_system_db_max_lifetime_closed_total`
+
+Current server/runtime metrics exposed from the API:
+
+- `go_goroutines`
+- `go_memstats_*`
+- `go_gc_duration_seconds`
+- `process_cpu_seconds_total`
+- `process_resident_memory_bytes`
+- `process_virtual_memory_bytes`
+- `process_open_fds` when supported by the host
 
 ## Migrations
 

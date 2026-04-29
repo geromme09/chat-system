@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -49,6 +50,7 @@ func MetricsHandler() gin.HandlerFunc {
 
 func MetricsMiddleware() gin.HandlerFunc {
 	metricsOnce.Do(func() {
+		registerDefaultCollectors()
 		prometheus.MustRegister(httpRequestsTotal, httpRequestDuration, httpRequestsInFlight)
 	})
 
@@ -68,5 +70,21 @@ func MetricsMiddleware() gin.HandlerFunc {
 		status := strconv.Itoa(c.Writer.Status())
 		httpRequestsTotal.WithLabelValues(c.Request.Method, route, status).Inc()
 		httpRequestDuration.WithLabelValues(c.Request.Method, route, status).Observe(time.Since(start).Seconds())
+	}
+}
+
+func registerDefaultCollectors() {
+	collectors := []prometheus.Collector{
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	}
+
+	for _, collector := range collectors {
+		if err := prometheus.Register(collector); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				continue
+			}
+			panic(err)
+		}
 	}
 }

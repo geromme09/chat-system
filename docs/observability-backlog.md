@@ -9,6 +9,8 @@ Implemented now:
 - `zap` structured logging to `stdout`
 - Prometheus scrape endpoint at `GET /metrics`
 - generic HTTP request counters, duration histograms, and in-flight gauges
+- database pool metrics from `sql.DB.Stats()`
+- Go runtime and process metrics through the Prometheus Go and process collectors
 - OpenTelemetry tracing on Gin requests
 - GORM tracing plugin
 - Jaeger OTLP HTTP export
@@ -23,6 +25,7 @@ Current local flow:
 - Promtail reads Docker logs
 - Promtail pushes logs to Loki
 - Prometheus scrapes API metrics
+- API exposes database pool health as Prometheus metrics
 - API exports traces to Jaeger
 - Grafana reads all three backends
 

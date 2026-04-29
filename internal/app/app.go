@@ -58,6 +58,9 @@ func NewApp() (*App, error) {
 		_ = telemetryShutdown(context.Background())
 		return nil, err
 	}
+	if sqlDB, sqlErr := db.DB(); sqlErr == nil && cfg.ObservabilityEnabled && cfg.MetricsEnabled {
+		observability.RegisterDBStats(sqlDB)
+	}
 	if cfg.ObservabilityEnabled && cfg.TracingEnabled {
 		if err := db.Use(otelgorm.NewPlugin()); err != nil {
 			_ = telemetryShutdown(context.Background())
